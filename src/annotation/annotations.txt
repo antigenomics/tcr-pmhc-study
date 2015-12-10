@@ -1,0 +1,41 @@
+pdb_id	pdb_chain_id	species	type	descr
+1ao7	A	Homo sapiens	mhc	HLA-A 0201
+1ao7	B	Homo sapiens	mhc	BETA-2 MICROGLOBULIN
+1ao7	D	Homo sapiens	tcr	T CELL RECEPTOR ALPHA
+1ao7	E	Homo sapiens	tcr	T CELL RECEPTOR BETA
+1ao7	C	Primate T-lymphotropic virus 1	antigen	TAX PEPTIDE
+1bd2	A	Homo sapiens	mhc	HLA-A 0201
+1bd2	B	Homo sapiens	mhc	BETA-2 MICROGLOBULIN
+1bd2	D	Homo sapiens	tcr	T CELL RECEPTOR ALPHA
+1bd2	E	Homo sapiens	tcr	T CELL RECEPTOR BETA
+1bd2	C	Primate T-lymphotropic virus 1	antigen	TAX PEPTIDE
+1d9k	C	Mus musculus	mhc	MHC I-AK A CHAIN (ALPHA CHAIN)
+1d9k	D	Mus musculus	mhc	MHC I-AK B CHAIN (BETA CHAIN)
+1d9k	A	Mus musculus	tcr	T-CELL RECEPTOR D10 (ALPHA CHAIN)
+1d9k	B	Mus musculus	tcr	T-CELL RECEPTOR D10 (BETA CHAIN)
+1d9k	P	Mus musculus	antigen	CONALBUMIN PEPTIDE
+1fo0	H	Mus musculus	mhc	PROTEIN (ALLOGENEIC H-2KB MHC CLASS I MOLECULE)
+1fo0	L	Mus musculus	mhc	PROTEIN (BETA-2 MICROGLOBULIN)
+1fo0	A	Mus musculus	tcr	PROTEIN (BM3.3 T CELL RECEPTOR ALPHA-CHAIN)
+1fo0	B	Mus musculus	tcr	PROTEIN (BM3.3 T CELL RECEPTOR BETA-CHAIN)
+1fo0	P	Mus musculus	antigen	NATURALLY PROCESSED OCTAPEPTIDE PBM1
+1fyt	A	Homo sapiens	mhc	HLA CLASS II HISTOCOMPATIBILITY ANTIGEN, DR ALPHA CHAIN
+1fyt	B	Homo sapiens	mhc	HLA CLASS II HISTOCOMPATIBILITY ANTIGEN, DR-1 BETA CHAIN
+1fyt	D	Homo sapiens	tcr	T-CELL RECEPTOR ALPHA CHAIN
+1fyt	E	Homo sapiens	tcr	T-CELL RECEPTOR BETA CHAIN
+1fyt	C	Influenza A virus	antigen	HEMAGGLUTININ HA1 PEPTIDE CHAIN
+1g6r	H	Mus musculus	mhc	MAJOR HISTOCOMPATIBILITY COMPLEX CLASS I MOLECULE
+1g6r	L	Mus musculus	mhc	BETA-2 MICROGLOBULIN
+1g6r	A	Mus musculus	tcr	ALPHA T CELL RECEPTOR
+1g6r	B	Mus musculus	tcr	BETA T CELL RECEPTOR
+1g6r	P	unknown	antigen	SIYR PEPTIDE
+1j8h	A	Homo sapiens	mhc	HLA CLASS II HISTOCOMPATIBILITY ANTIGEN, DR ALPHA CHAIN
+1j8h	B	Homo sapiens	mhc	HLA CLASS II HISTOCOMPATIBILITY ANTIGEN, DR-4 BETA CHAIN
+1j8h	D	Homo sapiens	tcr	T-CELL RECEPTOR ALPHA CHAIN
+1j8h	E	Homo sapiens	tcr	T-CELL RECEPTOR BETA CHAIN
+1j8h	C	Influenzavirus A	antigen	HEMAGGLUTININ HA1 PEPTIDE CHAIN
+1kj2	H	Mus musculus	mhc	Allogeneic H-2Kb MHC Class I Molecule
+1kj2	L	Mus musculus	mhc	Beta-2 microglobulin
+1kj2	A	Mus musculus	tcr	KB5-C20 T-Cell receptor alpha-chain
+1kj2	B	Mus musculus	tcr	KB5-C20 T-Cell receptor beta-chain
+1kj2	P	Mus musculus	antigen	Naturally processed octapeptide PKB1
