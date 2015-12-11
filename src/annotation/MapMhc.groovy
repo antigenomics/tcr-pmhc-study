@@ -58,15 +58,15 @@ new File("mhc.fasta").withPrintWriter { pw ->
         def splitLine = it.split("\t")
 
         if (splitLine[3] == "mhc") {
-            def pdbId = splitLine[0], chainId = splitLine[1]
+            def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
 
             def structure = StructureIO.getStructure(pdbId)
             def chain = structure.getChainByPDB(chainId)
 
-            def id = "$pdbId|$chainId", seq = getSequence(chain)
+            def id = "$pdbId|$chainId|$species", seq = getSequence(chain)
             pw.println(">$id")
             pw.println(getSequence(chain))
-            seqLengths.put(id, seq.length())
+            seqLengths.put(id.toString(), seq.length())
         }
     }
 }
@@ -90,10 +90,10 @@ def minIdent = 0.8, minQuerySpan = 0.8
 def mapped = 0
 
 new File(args[1]).withPrintWriter { pw ->
-    pw.println("pdb_id\tpdb_chain_id\tmhc_match")
+    pw.println("pdb_id\tpdb_chain_id\tspecies\tmhc_match")
     new File("mhc.blast").splitEachLine("[\t ]+") {
-        println it
         def id = it[0], match = it[1], ident = it[2].toDouble(), span = it[3].toDouble() / seqLengths[id]
+
         if (ident >= minIdent && span >= minQuerySpan) {
             pw.println([id.split("\\|"), match].flatten().join("\t"))
             mapped++
