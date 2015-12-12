@@ -20,7 +20,7 @@ package annotation
 import org.biojava.nbio.structure.rcsb.RCSBDescriptionFactory
 import org.biojava.nbio.structure.rcsb.RCSBPolymer
 
-def allowedHostIds = [9606, 10090]
+def allowedHostIds = [(9606): "HomoSapiens", (10090): "MusMusculus"]
 
 def mhcKeywords = ["hla", "mhc", "histocompatibility", "beta-2-microglobulin", "beta-2 microglobulin", "b2m"],
     tcrKeywords = ["tcr", "tra", "trav", "trb", "trbv", "t-cell receptor", "t cell receptor", "alpha chain", "beta chain"]
@@ -46,7 +46,7 @@ new File(args[1]).withPrintWriter { pw ->
         def hostPolymers = [], nonHostPolymers = []
 
         polymers.each {
-            if (it.taxonomy && allowedHostIds.contains(it.taxonomy.id) && it.length > 30)
+            if (it.taxonomy && allowedHostIds.containsKey(it.taxonomy.id) && it.length > 30)
                 hostPolymers.add(it)
             else
                 nonHostPolymers.add(it)

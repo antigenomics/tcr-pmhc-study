@@ -92,7 +92,7 @@ def mapped = 0
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tmhc_match")
     new File("mhc.blast").splitEachLine("[\t ]+") {
-        def id = it[0], match = it[1], ident = it[2].toDouble(), span = it[3].toDouble() / seqLengths[id]
+        def id = it[0], match = it[1], ident = it[2].toDouble() / 100, span = it[3].toDouble() / seqLengths[id]
 
         if (ident >= minIdent && span >= minQuerySpan) {
             pw.println([id.split("\\|"), match].flatten().join("\t"))
