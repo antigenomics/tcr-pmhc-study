@@ -15,12 +15,10 @@
 
 package annotation
 
-@Grab(group = 'org.biojava', module = 'biojava-structure', version = '4.1.0')
-
-import org.biojava.nbio.structure.Chain
 import org.biojava.nbio.structure.GroupType
 import org.biojava.nbio.structure.StructureIO
 
+@Grab(group = 'org.biojava', module = 'biojava-structure', version = '4.1.0')
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
@@ -48,7 +46,9 @@ def aaConversions =
                 ("VAL"): "V"
         ]
 
-def getSequence = { Chain chain ->
+def getSequence = { String pdbId, String chainId ->
+    def structure = StructureIO.getStructure(pdbId)
+    def chain = structure.getChainByPDB(chainId)
     chain.getAtomGroups(GroupType.AMINOACID).collect { aaConversions[it.PDBName] }.join("")
 }
 
@@ -57,18 +57,16 @@ def sequenceMap = new HashMap<String, String>()
 System.err.println "Extracting amino acid sequences of 'tcr' polymers"
 
 new File("tcr.fasta").withPrintWriter { pw ->
-    new File(args[0]).eachLine(1) {
+    new File(args[0]).eachLine { it, ind ->
+        if (ind == 1) return
         def splitLine = it.split("\t")
 
         if (splitLine[3] == "tcr") {
             def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
 
-            def structure = StructureIO.getStructure(pdbId)
-            def chain = structure.getChainByPDB(chainId)
-
-            def id = "$pdbId|$chainId|$species", seq = getSequence(chain)
+            def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
             pw.println(">$id")
-            pw.println(getSequence(chain))
+            pw.println(seq)
             sequenceMap.put(id.toString(), seq)
         }
     }
