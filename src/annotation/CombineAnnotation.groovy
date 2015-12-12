@@ -159,7 +159,7 @@ System.err.println("Summarizing")
 new File(args[3]).withPrintWriter { pw ->
     pw.println("pdb_id\tspecies\t" +
             "chain_mhc_a\tmhc_a_allele\t" +
-            "tchain_mhc_b\tmhc_b_allele\t" +
+            "chain_mhc_b\tmhc_b_allele\t" +
             "mhc_type\t" +
             "chain_antigen\tantigen_seq\t" +
             "tcr_chain\ttcr_v_allele\t" +
@@ -192,7 +192,7 @@ new File(args[3]).withPrintWriter { pw ->
                                     complex.antigen.pdbChain, complex.antigen.seq,
                                     tcr.pdbChain, tcr.vSegment,
                                     regionType, region.start, region.end, region.seq
-                        ].join("\t")
+].join("\t")
                         )
                     }
                 }

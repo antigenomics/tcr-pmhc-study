@@ -53,7 +53,7 @@ def seqLengths = new HashMap<String, Integer>()
 
 System.err.println "Extracting amino acid sequences of 'mhc' polymers"
 
-new File("mhc.fasta").withPrintWriter { pw ->
+new File("../../tmp/mhc.fasta").withPrintWriter { pw ->
     new File(args[0]).eachLine { it, ind ->
         if (ind == 1) return
         def splitLine = it.split("\t")
@@ -75,7 +75,7 @@ def proc =
         """
         blastp -num_threads ${Runtime.runtime.availableProcessors()} -db ../../res/mhc.prot
         -outfmt 6 -num_alignments 1
-        -query mhc.fasta -out mhc.blast
+        -query ../../tmp/mhc.fasta -out ../../tmp/mhc.blast
         """.execute()
 
 proc.waitFor()
@@ -89,7 +89,7 @@ def mapped = 0
 
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tmhc_match")
-    new File("mhc.blast").splitEachLine("[\t ]+") {
+    new File("../../tmp/mhc.blast").splitEachLine("[\t ]+") {
         def id = it[0], match = it[1], ident = it[2].toDouble() / 100, span = it[3].toDouble() / seqLengths[id]
 
         if (ident >= minIdent && span >= minQuerySpan) {

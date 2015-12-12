@@ -56,7 +56,7 @@ def sequenceMap = new HashMap<String, String>()
 
 System.err.println "Extracting amino acid sequences of 'tcr' polymers"
 
-new File("tcr.fasta").withPrintWriter { pw ->
+new File("../../tmp/tcr.fasta").withPrintWriter { pw ->
     new File(args[0]).eachLine { it, ind ->
         if (ind == 1) return
         def splitLine = it.split("\t")
@@ -74,7 +74,8 @@ new File("tcr.fasta").withPrintWriter { pw ->
 
 System.err.println "IG-BLAST'ing"
 
-def proc = "igblastp -germline_db_V ../../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query tcr.fasta -out tcr.blast".execute()
+def proc = "igblastp -germline_db_V ../../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query " +
+        "../../tmp/tcr.fasta -out ../../tmp/tcr.blast".execute()
 
 proc.waitFor()
 
@@ -141,7 +142,7 @@ new File(args[1]).withPrintWriter { pw ->
         }
     }
 
-    new File("tcr.blast").eachLine {
+    new File("../../tmp/tcr.blast").eachLine {
         if (it.startsWith("# IGBLASTP")) {
             processChunk()
             chunk = ""
