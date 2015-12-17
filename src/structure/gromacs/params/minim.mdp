@@ -1,0 +1,14 @@
+; minim.mdp - used as input into grompp to generate em.tpr
+integrator	= steep		; Algorithm (steep = steepest descent minimization)
+emtol		= 1000.0  	; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
+emstep      = 0.01      ; Energy step size
+nsteps		= 1	; Maximum number of (minimization) steps to perform
+energygrps	= r_1-15_GLY_23 r_1-15_GLU_24 r_1-15_LEU_25 r_1-15_ILE_26 r_1-15_GLY_27 r_1-15_THR_28 r_1-15_LEU_29 r_1-15_ASN_30 r_1-15_ALA_31 r_1-15_ALA_32 r_1-15_LYS_33 r_1-15_VAL_34 r_1-15_PRO_35 r_1-15_ALA_36 r_1-15_ASP_37 r_16-28_CYS_86 r_16-28_ALA_87 r_16-28_ALA_88 r_16-28_LEU_89 r_16-28_ILE_90 r_16-28_GLN_91 r_16-28_GLY_92 r_16-28_ALA_93 r_16-28_GLN_94 r_16-28_LYS_95 r_16-28_LEU_96 r_16-28_VAL_97 r_16-28_PHE_98 r_29-39_CYS_91 r_29-39_ALA_92 r_29-39_SER_93 r_29-39_THR_94 r_29-39_TYR_95 r_29-39_HIS_96 r_29-39_GLY_97 r_29-39_THR_98 r_29-39_GLY_99 r_29-39_TYR_100 r_29-39_PHE_101
+; Parameters describing how to find the neighbors of each atom and how to calculate the interactions
+nstlist		    = 1		    ; Frequency to update the neighbor list and long range forces
+cutoff-scheme   = Verlet
+ns_type		    = grid		; Method to determine neighbor list (simple, grid)
+coulombtype	    = PME		; Treatment of long range electrostatic interactions
+rcoulomb	    = 1.0		; Short-range electrostatic cut-off
+rvdw		    = 1.0		; Short-range Van der Waals cut-off
+pbc		        = xyz 		; Periodic Boundary Conditions (yes/no)

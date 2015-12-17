@@ -1,0 +1,69 @@
+GROMACS:    gmx grompp, VERSION 5.0.1
+
+GROMACS is written by:
+Emile Apol         Rossen Apostolov   Herman J.C. Berendsen Par Bjelkmar       
+Aldert van Buuren  Rudi van Drunen    Anton Feenstra     Sebastian Fritsch  
+Gerrit Groenhof    Christoph Junghans Peter Kasson       Carsten Kutzner    
+Per Larsson        Justin A. Lemkul   Magnus Lundborg    Pieter Meulenhoff  
+Erik Marklund      Teemu Murtola      Szilard Pall       Sander Pronk       
+Roland Schulz      Alexey Shvetsov    Michael Shirts     Alfons Sijbers     
+Peter Tieleman     Christian Wennberg Maarten Wolf       
+and the project leaders:
+Mark Abraham, Berk Hess, Erik Lindahl, and David van der Spoel
+
+Copyright (c) 1991-2000, University of Groningen, The Netherlands.
+Copyright (c) 2001-2014, The GROMACS development team at
+Uppsala University, Stockholm University and
+the Royal Institute of Technology, Sweden.
+check out http://www.gromacs.org for more information.
+
+GROMACS is free software; you can redistribute it and/or modify it
+under the terms of the GNU Lesser General Public License
+as published by the Free Software Foundation; either version 2.1
+of the License, or (at your option) any later version.
+
+GROMACS:      gmx grompp, VERSION 5.0.1
+Executable:   /usr/local/gromacs/bin/gmx
+Library dir:  /usr/local/gromacs/share/gromacs/top
+Command line:
+  gmx grompp -f params/minim.mdp -c 4ozi.gro -p topol.top -n index.ndx -o em4ozi.tpr
+
+
+Back Off! I just backed up mdout.mdp to ./#mdout.mdp.1#
+
+NOTE 1 [file params/minim.mdp]:
+  With Verlet lists the optimal nstlist is >= 10, with GPUs >= 20. Note
+  that with the Verlet scheme, nstlist has no effect on the accuracy of
+  your simulation.
+
+Setting the LD random seed to 3500139376
+Generated 331705 of the 331705 non-bonded parameter combinations
+Generating 1-4 interactions: fudge = 0.5
+Generated 331705 of the 331705 1-4 parameter combinations
+Excluding 3 bonded neighbours molecule type 'Protein_chain_E'
+Excluding 3 bonded neighbours molecule type 'Protein_chain_F'
+Excluding 3 bonded neighbours molecule type 'Protein_chain_I'
+
+NOTE 2 [file topol.top, line 47]:
+  System has non-zero total charge: -2.000000
+  Total charge should normally be an integer. See
+  http://www.gromacs.org/Documentation/Floating_Point_Arithmetic
+  for discussion on how close it should be to an integer.
+  
+
+
+Removing all charge groups because cutoff-scheme=Verlet
+
+-------------------------------------------------------
+Program gmx, VERSION 5.0.1
+Source code file: /home/mikhail/Development/Programs/gromacs-5.0.1/src/gromacs/gmxpreprocess/readir.c, line: 2518
+
+Fatal error:
+Group r_1-11_HIS_1 referenced in the .mdp file was not found in the index file.
+Group names must match either [moleculetype] names or custom index group
+names, in which case you must supply an index file to the '-n' option
+of grompp.
+For more information and tips for troubleshooting, please check the GROMACS
+website at http://www.gromacs.org/Documentation/Errors
+-------------------------------------------------------
+

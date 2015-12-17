@@ -3,3 +3,5 @@ target/
 out/
 .idea/
 *.iml
+src/structure/pdbs
+src/structure/truncpdbs
