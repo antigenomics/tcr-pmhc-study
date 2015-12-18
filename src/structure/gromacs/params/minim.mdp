@@ -3,7 +3,7 @@ integrator	= steep		; Algorithm (steep = steepest descent minimization)
 emtol		= 1000.0  	; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
 emstep      = 0.01      ; Energy step size
 nsteps		= 1	; Maximum number of (minimization) steps to perform
-energygrps	= r_1-15_GLY_23 r_1-15_GLU_24 r_1-15_LEU_25 r_1-15_ILE_26 r_1-15_GLY_27 r_1-15_THR_28 r_1-15_LEU_29 r_1-15_ASN_30 r_1-15_ALA_31 r_1-15_ALA_32 r_1-15_LYS_33 r_1-15_VAL_34 r_1-15_PRO_35 r_1-15_ALA_36 r_1-15_ASP_37 r_16-28_CYS_86 r_16-28_ALA_87 r_16-28_ALA_88 r_16-28_LEU_89 r_16-28_ILE_90 r_16-28_GLN_91 r_16-28_GLY_92 r_16-28_ALA_93 r_16-28_GLN_94 r_16-28_LYS_95 r_16-28_LEU_96 r_16-28_VAL_97 r_16-28_PHE_98 r_29-39_CYS_91 r_29-39_ALA_92 r_29-39_SER_93 r_29-39_THR_94 r_29-39_TYR_95 r_29-39_HIS_96 r_29-39_GLY_97 r_29-39_THR_98 r_29-39_GLY_99 r_29-39_TYR_100 r_29-39_PHE_101
+energygrps	= r_1-10_LYS_1 r_1-10_ARG_2 r_1-10_TRP_3 r_1-10_ILE_4 r_1-10_ILE_5 r_1-10_MET_6 r_1-10_GLY_7 r_1-10_LEU_8 r_1-10_ASN_9 r_1-10_LYS_10 r_11-25_CYS_104 r_11-25_ALA_105 r_11-25_MET_106 r_11-25_ARG_107 r_11-25_ASP_108 r_11-25_LEU_109 r_11-25_ARG_110 r_11-25_ASP_111 r_11-25_ASN_112 r_11-25_PHE_113 r_11-25_ASN_114 r_11-25_LYS_115 r_11-25_PHE_116 r_11-25_TYR_117 r_11-25_PHE_118 r_26-39_CYS_104 r_26-39_ALA_105 r_26-39_SER_106 r_26-39_ARG_107 r_26-39_GLU_108 r_26-39_GLY_109 r_26-39_LEU_110 r_26-39_GLY_111 r_26-39_GLY_112 r_26-39_THR_113 r_26-39_GLU_114 r_26-39_ALA_115 r_26-39_PHE_116 r_26-39_PHE_117
 ; Parameters describing how to find the neighbors of each atom and how to calculate the interactions
 nstlist		    = 1		    ; Frequency to update the neighbor list and long range forces
 cutoff-scheme   = Verlet
