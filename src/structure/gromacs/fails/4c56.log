@@ -71,4 +71,4 @@ probably something wrong with your system. Only change the table-extension
 distance in the mdp file if you are really sure that is the reason.
 
 
-Step=    0, Dmax= 1.0e-02 nm, Epot=         -nan Fmax= 2.16965e+06, atom= 113
+Step=    0, Dmax= 1.0e-05 nm, Epot=         -nan Fmax= 2.16965e+06, atom= 113

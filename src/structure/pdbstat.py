@@ -1,6 +1,7 @@
 import pdbmod
 import pandas as pd
 import sys
+import argparse
 from os.path import isfile
 from Bio.PDB import PDBParser
 
@@ -8,12 +9,13 @@ from Bio.PDB import PDBParser
 # For calculating energies grom_script.sh must be in the same folder with this file
 #
 #			    
-# Usage example: pdbstat.py name1.pdb name2.pdb name3.pdb table
+# Usage example: pdbstat.py table -n name1.pdb name2.pdb name3.pdb
+# Use --help for more info
 #
 # this will create summary table in the folder specified by result_table_dir
 # with the regions listed in the variables main_region and regions
 #==================================================================================
-# variants for final flag: nrg, dist, comp, table
+# variants for final flag -a: nrg, dist, comp, table
 #==================================================================================
 
 pdb_dir = 'pdbs'					# where .pdb files lie
@@ -108,21 +110,30 @@ def CheckInput(data, items):
 
 #============================ Main =============================================
 
-names = map(lambda x: x[-8:-4], sys.argv[1:-1])
-flag = sys.argv[-1]
+parser = argparse.ArgumentParser(description='Use --help for more info')
 
-switch = {'--nrg': lambda x: Iterate(x, Nrg),
-	'--dist': lambda x: Iterate(x, Dist),
-	'--comp': lambda x: Iterate(x, CompressPDB), 
-	'--table': lambda x: Iterate(x, Table)}
+parser.add_argument('--names', '-n', nargs='+', dest='names', type=str, default=['all'], \
+	help='type a list of pdb files (ex: 1ao7.pdb 1awx.pdb etc.) or "all" to process all listed in the table at once (default: all)')
+parser.add_argument('action', nargs=1, type=str,
+	choices=['nrg', 'dist', 'comp', 'table'], help='what to do with the pdbs')
+args = parser.parse_args()
+
+switch = {'nrg': lambda x: Iterate(x, Nrg),
+	'dist': lambda x: Iterate(x, Dist),
+	'comp': lambda x: Iterate(x, CompressPDB), 
+	'table': lambda x: Iterate(x, Table)}
 exception = lambda x : Err();
+
+flag = args.action[0]
+names = args.names
 
 FUN = switch.get(flag, exception)
 data = pd.DataFrame(pd.read_table(data_path, sep='\t'))
 
-if len(sys.argv) == 3:
-	if sys.argv[1] == 'all':
-		names = list(set(data['pdb_id'].tolist()))
+if len(names) == 1 and names[0] == 'all':
+	names = list(set(data['pdb_id'].tolist()))
+else:
+	names = map(lambda x: x[-8:-4], names)
 
 names = CheckInput(data, names)
 
@@ -131,7 +142,7 @@ if not cpx:
 	print 'ERROR OCCURED!'
 	
 try:
-	if flag == '--table':
+	if flag == 'table':
 		result_table = pd.concat([x.summary_table for x in cpx])
 		result_table = result_table.reset_index(drop=True)
 		result_table.to_html(result_table_dir + '/summary_table.html')

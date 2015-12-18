@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python pdbstat.py all --table
+python pdbstat.py table
