@@ -50,7 +50,7 @@ def findSeqsInGro(protein_seq, seq_list):
 	for seq in seq_list:
 		ind = protein_seq.find(seq)
 		if (ind == -1):
-			print 'SEQUENCE' + seq + 'WAS NOT FOUND IN .gro'
+			sys.stderr.write('SEQUENCE ' + seq + ' WAS NOT FOUND IN .gro')
 			exit(1)
 		begin.append(ind + 1)
 		end.append(begin[-1] + len(seq) - 1)
@@ -117,26 +117,27 @@ def appendToGroupsDat(path, names):
 # In[243]:
 
 def appendSeqs(path, idlist, atlist, aas):
-    fl = open(path, 'a')
-    groups = gromacs.cbook.get_ndx_groups(path)
-    names = []
-    for pair in idlist:
-        for aa in range(pair[0] - 1, pair[1]):
-            name = 'r_' + str(pair[0]) + '-' + str(pair[1]) + '_' + aas[aa]
-            names.append(name)
-            if any(group['name'] == name for group in groups):
-                continue
-            fl.write('[ ' + name + ' ]\n')
-            for atom in range(atlist[aa], atlist[aa + 1]):
-                fl.write(str(atom) + ' ')
-            fl.write('\n')
-    fl.close()
-    return names
+	fl = open(path, 'a')
+	groups = gromacs.cbook.get_ndx_groups(path)
+	names = []
+	for pair in idlist:
+		for aa in range(pair[0] - 1, pair[1]):
+		    name = 'r_' + str(pair[0]) + '-' + str(pair[1]) + '_' + aas[aa]
+		    names.append(name)
+		    if any(group['name'] == name for group in groups):
+			continue
+		    fl.write('[ ' + name + ' ]\n')
+		    for atom in range(atlist[aa], atlist[aa + 1]):
+			fl.write(str(atom) + ' ')
+		    fl.write('\n')
+	fl.close()
+	return names
+
+if len(sys.argv) < 5:
+	sys.stderr.write('NEED MORE PARAMETERS TO EXECUTE')		
+	exit(1)
 
 item = sys.argv[3]
-if len(sys.argv) < 5:
-	print 'NEED MORE PARAMETERS TO EXECUTE'		
-	exit(1)
 	
 index_file_dir = sys.argv[1]
 mdp_file_dir = index_file_dir + '/params'

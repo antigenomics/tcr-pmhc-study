@@ -6,9 +6,23 @@ function test {
     if [ $status -ne 0 ]; then
     	echo
     	"$@" 2>$LOG_PATH
-        echo "error with $@"
+        echo "error with: $@"
         echo
         mv em$NAME.edr groups$NAME.dat trash
+        exit 0
+    fi
+    return 0
+}
+
+function pytest {
+    SEQS=$("$@")
+    local status=$?
+    if [ $status -ne 0 ]; then
+    	echo
+    	"$@" 2>$GROMACS_PATH/$LOG_PATH
+        echo "error with: $@"
+        echo
+        mv groups$NAME.dat trash
         exit 0
     fi
     return 0
@@ -24,15 +38,11 @@ cd $GROMACS_PATH
 
 mkdir fails
 test gmx pdb2gmx -f $NAME.pdb -o $NAME.gro -water spce -missing -ff oplsaa
-
 test gmx editconf -f $NAME.gro -o $NAME.gro -c -d 1.0 -bt cubic
-#test gmx solvate -cp $NAME.gro -cs spc216.gro -o $NAME.gro -p topol.top
-#gmx grompp -f params/ions.mdp -c $NAME.gro -p topol.top -o ions.tpr
-#read
-#gmx genion -s ions.tpr -o $NAME.gro -p topol.top -pNAME NA -nNAME CL -nn 8
+
 cd -
 
-SEQS=$(python enemat.py $*)
+pytest python enemat.py $*
 
 cd -
 

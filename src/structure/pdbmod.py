@@ -6,7 +6,7 @@ from Bio.PDB import Polypeptide
 import pandas as pd
 import numpy as np
 import subprocess
-from math import ceil
+from math import floor
 
 PEPTIDE_BORDER = 30
 
@@ -346,8 +346,8 @@ class Interaction:
 			table.loc[cond, 'len_tcr_region'] = len_tcr_region
 			
 			small = pd.concat(nrg_melt_table.shape[0]*[table[cond]])
-			small.loc[:, 'pos_tcr_region'] 		= [x - ceil(len_tcr_region / 2) for x in nrg_melt_table_mod['variable'].tolist()]
-			small.loc[:, 'pos_' + region_name] 	= [x - ceil(len_region_name / 2) for x in nrg_melt_table_mod['index'].tolist()]
+			small.loc[:, 'pos_tcr_region'] 		= [x - floor(len_tcr_region / 2) for x in nrg_melt_table_mod['variable'].tolist()]
+			small.loc[:, 'pos_' + region_name] 	= [x - floor(len_region_name / 2) for x in nrg_melt_table_mod['index'].tolist()]
 			small.loc[:, 'aa_tcr_region'] 		= nrg_melt_table['variable'].tolist()
 			small.loc[:, 'aa_' + region_name] 	= nrg_melt_table['index'].tolist()
 			small.loc[:, 'len_' + region_name] 	= len_region_name
