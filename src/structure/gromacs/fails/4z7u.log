@@ -1,4 +1,0 @@
-/home/mikhail/Development/Libs/anaconda2/lib/python2.7/site-packages/GromacsWrapper-0.3.3-py2.7.egg/gromacs/__init__.py:328: GromacsImportWarning: Some Gromacs commands were NOT found; maybe source GMXRC first? The following are missing:
-['a_gridcalc', 'a_ri3dc', 'g_count', 'g_dih', 'g_flux', 'g_kinetics', 'g_luck', 'g_membed', 'g_ri3dc', 'mdrun_d']
-
-SEQUENCE CASSTTPGTGTETQYF WAS NOT FOUND IN .gro
