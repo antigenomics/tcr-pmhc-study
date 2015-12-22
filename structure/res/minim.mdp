@@ -1,14 +1,32 @@
 ; minim.mdp - used as input into grompp to generate em.tpr
-integrator	= steep		; Algorithm (steep = steepest descent minimization)
-emtol		= 1000.0  	; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
-emstep      = 0.00001      ; Energy step size
-nsteps		= 1	; Maximum number of (minimization) steps to perform
-energygrps	= r_1-10_LYS_1 r_1-10_ARG_2 r_1-10_TRP_3 r_1-10_ILE_4 r_1-10_ILE_5 r_1-10_MET_6 r_1-10_GLY_7 r_1-10_LEU_8 r_1-10_ASN_9 r_1-10_LYS_10 r_11-25_CYS_104 r_11-25_ALA_105 r_11-25_MET_106 r_11-25_ARG_107 r_11-25_ASP_108 r_11-25_LEU_109 r_11-25_ARG_110 r_11-25_ASP_111 r_11-25_ASN_112 r_11-25_PHE_113 r_11-25_ASN_114 r_11-25_LYS_115 r_11-25_PHE_116 r_11-25_TYR_117 r_11-25_PHE_118 r_26-39_CYS_104 r_26-39_ALA_105 r_26-39_SER_106 r_26-39_ARG_107 r_26-39_GLU_108 r_26-39_GLY_109 r_26-39_LEU_110 r_26-39_GLY_111 r_26-39_GLY_112 r_26-39_THR_113 r_26-39_GLU_114 r_26-39_ALA_115 r_26-39_PHE_116 r_26-39_PHE_117
-; Parameters describing how to find the neighbors of each atom and how to calculate the interactions
-nstlist		    = 1		    ; Frequency to update the neighbor list and long range forces
-cutoff-scheme   = Verlet
-ns_type		    = grid		; Method to determine neighbor list (simple, grid)
-coulombtype	    = PME		; Treatment of long range electrostatic interactions
-rcoulomb	    = 1.0		; Short-range electrostatic cut-off
-rvdw		    = 1.0		; Short-range Van der Waals cut-off
-pbc		        = xyz 		; Periodic Boundary Conditions (yes/no)
+; Parameters describing what to do, when to stop and what to save
+; Run control
+integrator               = l-bfgs   ; Algorithm (steep = steepest descent minimization)
+; define                   = -DFLEXIBLE
+emtol                    = 100.0   	; Stop minimization when the maximum force < 100.0 kJ/mol/nm
+emstep                   = 0.01     ; Energy step size
+nsteps		             = 5000	  	; Maximum number of (minimization) steps to perform
+niter                    = 20
+nbfgscorr                = 10
+
+; Neighborsearching and short-range nonbonded interactions
+cutoff-scheme            = verlet
+nstlist                  = 1
+ns_type                  = grid
+pbc                      = xyz
+rlist                    = 1.2
+
+; Electrostatics
+coulombtype              = PME
+rcoulomb                 = 1.2
+
+; van der Waals
+vdwtype                  = cutoff
+vdw-modifier             = potential-switch
+rvdw-switch              = 1.0
+rvdw                     = 1.2
+
+; Temperature and pressure coupling are off during EM, no velocities
+tcoupl                   = no
+pcoupl                   = no
+gen_vel                  = no

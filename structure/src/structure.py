@@ -11,7 +11,7 @@ args = parser.parse_args()
 
 # df = pd.read_table(args[0])
 
-table = pd.read_table('../tmp/final.annotations.txt')  # TODO
+table = pd.read_table('../../result/final.annotations.txt')  # TODO
 
 bypdb = table.groupby('pdb_id')
 
@@ -24,22 +24,15 @@ for d in [pdb_dir, gmx_dir]:
         clear_folder(d)
 
 # Main loop
-for pdb_id, pdb_group in itertools.islice(bypdb, 2, 10):  # TODO
+for pdb_id, pdb_group in itertools.islice(bypdb, 2, 4):  # TODO
     pdb_file = '{}pdb{}.ent'.format(pdb_dir, pdb_id)
     gmx_prefix = '{}{}'.format(gmx_dir, pdb_id)
 
     # Load PDB file
     PDBList().retrieve_pdb_file(pdb_id, pdir=pdb_dir)
 
-    # Fix PDB struture
-    fix_pdb(pdb_id, pdb_file, pdb_group)
-
-    # Prepare GROMACS files
-    prepare_gmx(pdb_file, gmx_prefix)
-
     # Load model from fixed pdb file
-    model_id = select_model(pdb_id, pdb_file, pdb_group)
-    model = PDBParser().get_structure(pdb_id, pdb_file)[model_id]
+    model = PDBParser().get_structure(pdb_id, pdb_file)[0]
 
     # Store annotation for entire complex
     pdb_annot = pdb_group.iloc[0]
@@ -54,6 +47,7 @@ for pdb_id, pdb_group in itertools.islice(bypdb, 2, 10):  # TODO
 
     # Iterate by TCR chain/region (CDR1,2,3)
     byregion = pdb_group.groupby(['chain_tcr', 'tcr_region'])
+    results = []
     for tcr_region_id, tcr_region_group in byregion:
         # Get and check tcr region residues
         tcr_annot = tcr_region_group.iloc[0]
@@ -64,14 +58,14 @@ for pdb_id, pdb_group in itertools.islice(bypdb, 2, 10):  # TODO
 
         assert tcr_region_seq == get_seq(tcr_region_residues)
 
-        calc_distances(tcr_region_residues, antigen_residues, tcr_region_range, antigen_range)
+        # Compute distances and add them to results
+        results.extend(calc_distances(tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
+                                      tcr_region_residues, antigen_residues, tcr_region_range, antigen_range))
 
-# print(structure[0][pdb_annot['chain_antigen']][1])
-# print(get_seq(structure[0][])
+    # print(results)
 
-# print(residue)
+    # Fix PDB structure
+    fix_pdb(pdb_id, pdb_file, pdb_group)
 
-# byregion = pdb_group.groupby(['tcr_chain', 'tcr_region'])
-# for region_id, region_group in byregion:
-# print(region_id)
-# print(region_group)
+    # Prepare GROMACS files
+    prepare_gmx(pdb_file, gmx_prefix)
