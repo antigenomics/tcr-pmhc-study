@@ -24,7 +24,7 @@ for d in [pdb_dir, gmx_dir]:
         clear_folder(d)
 
 # Main loop
-for pdb_id, pdb_group in itertools.islice(bypdb, 2, 4):  # TODO
+for pdb_id, pdb_group in bypdb:
     pdb_file = '{}pdb{}.ent'.format(pdb_dir, pdb_id)
     gmx_prefix = '{}{}'.format(gmx_dir, pdb_id)
 
@@ -62,10 +62,5 @@ for pdb_id, pdb_group in itertools.islice(bypdb, 2, 4):  # TODO
         results.extend(calc_distances(tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
                                       tcr_region_residues, antigen_residues, tcr_region_range, antigen_range))
 
-    # print(results)
+    print(results)
 
-    # Fix PDB structure
-    fix_pdb(pdb_id, pdb_file, pdb_group)
-
-    # Prepare GROMACS files
-    prepare_gmx(pdb_file, gmx_prefix)

@@ -1,9 +1,9 @@
-import pdbmod
-import pandas as pd
-import sys
 import argparse
 from os.path import isfile
-from Bio.PDB import PDBParser
+
+import pandas as pd
+
+from old import pdbmod
 
 #==================================================================================
 # For calculating energies grom_script.sh must be in the same folder with this file

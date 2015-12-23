@@ -3,13 +3,10 @@
 
 # In[237]:
 
-from Bio.PDB import PDBParser
-from Bio.PDB import Polypeptide
-from gromacs import cbook
-import pandas as pd
-import gromacs.cbook
-import pdbmod
 import sys
+
+import gromacs.cbook
+from Bio.PDB import Polypeptide
 
 
 # In[238]:
