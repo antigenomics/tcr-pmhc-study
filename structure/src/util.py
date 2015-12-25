@@ -8,6 +8,7 @@ from os.path import dirname
 from shutil import copyfile
 from subprocess import check_call
 
+import re
 from Bio.PDB import PDBParser
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
@@ -60,8 +61,8 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
              'aa_ag': get_aa_code(aa_ag),
              'len_tcr': len(tcr_range),
              'len_ag': len(ag_range),
-             'pos_tcr': tcr_range[i],
-             'pos_ag': ag_range[j],
+             'pos_tcr': i,
+             'pos_ag': j,
              'dist': calc_distance(aa_tcr, aa_ag)}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues)]
@@ -91,7 +92,7 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.removeHeterogens(True)
-    fixer.addMissingHydrogens(7.0)
+    # fixer.addMissingHydrogens(7.0)
     # fixer.addSolvent(fixer.topology.getUnitCellDimensions())
 
     # KeepIds flag is critical here, otherwise we loose all information binding
@@ -106,12 +107,12 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
 os.environ['GMX_MAXBACKUP'] = '0'  # suppress shitload of gromacs backups
 
 
-def create_index(pdb_id, gmx_dir, chains, keep_idxs):
+def create_index(pdb_id, pdb_sub_id, chains, keep_idxs):
     chains_iter = iter(chains)
     i = 0
     index = OrderedDict()
 
-    with open(gmx_dir + '/' + pdb_id + '.gro') as g_file:
+    with open(pdb_id + '.gro') as g_file:
         for _ in range(2):
             next(g_file)
 
@@ -139,8 +140,8 @@ def create_index(pdb_id, gmx_dir, chains, keep_idxs):
 
     res_ids = []
 
-    with open(gmx_dir + '/' + pdb_id + '.ndx', 'w') as i_file:
-        with open(gmx_dir + '/' + pdb_id + '.dat', 'w') as d_file:
+    with open(pdb_sub_id + '.ndx', 'w') as i_file:
+        with open(pdb_sub_id + '.dat', 'w') as d_file:
             d_file.write(str(len(index)) + '\n')
             for res_id, atom_ids in index.items():
                 res_ids.append(res_id)
@@ -149,26 +150,25 @@ def create_index(pdb_id, gmx_dir, chains, keep_idxs):
                 for atom_id in atom_ids:
                     i_file.write(str(atom_id) + '\n')
 
+    # print("")
+    # print(keep_idxs)
+    # print(res_ids)
+    # print("")
+
     return res_ids
 
 
 def prepare_gmx(pdb_id, pdb_file, gmx_dir):
-    os.chdir(gmx_dir)
-
-    check_call('gmx pdb2gmx -f {0} -o {1}.gro -p {1}.top -water spce -ff oplsaa; '
-               'gmx editconf -f {1}.gro -o {1}.gro -c -d 1.0 -bt cubic; '.
+    check_call('gmx pdb2gmx -quiet -f {0} -o {1}.gro -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
+               'gmx editconf -quiet -f {1}.gro -o {1}.gro -c -d 1.0 -bt cubic >> gmx.log 2>&1'.
                format(pdb_file, pdb_id), shell=True
                )
 
 
-def run_md(pdb_id, gmx_dir, keep_idxs):
-    param_template_path = os.path.abspath("../res/sp.mdp")  # TODO: abs path from script
+def run_single_point(pdb_id, pdb_sub_id, param_template_path, keep_idxs):
+    copyfile(param_template_path, pdb_sub_id + '.mdp')
 
-    os.chdir(gmx_dir)
-
-    copyfile(param_template_path, pdb_id + '.mdp')
-
-    with open(pdb_id + '.mdp', 'a') as f:
+    with open(pdb_sub_id + '.mdp', 'a') as f:
         f.write('\nenergygrps\t= ' + ' '.join(keep_idxs))
 
     # Writing the following lines take several days owing to best-practices appliend in writing GROMACS documentation
@@ -180,8 +180,36 @@ def run_md(pdb_id, gmx_dir, keep_idxs):
     # ndx/groups files are used to mark residues of interest and calculate interaction energies
     # NOTE: without -nb CPU energies are not stored.
 
-    check_call('gmx grompp -c {}.gro -p {}.top -n {}.ndx -f {}.mdp -o {}.tpr; '
-               'gmx mdrun -s {}.tpr -rerun {}.gro -e {}.edr -g {}.log -nb cpu; '
-               'gmx enemat -groups {}.dat -nlevels 10000 -f {}.edr -emat .{}.xpm'
-               .format(pdb_id), shell=True
+    check_call('gmx grompp -c {1}.gro -p {1}.top -n {0}.ndx -f {0}.mdp -o {0}.tpr >> gmx.log 2>&1; '
+               'gmx mdrun -s {0}.tpr -rerun {1}.gro -e {0}.edr -nb cpu >> gmx.log 2>&1; '
+               'gmx enemat -groups {0}.dat -nlevels 10000 -f {0}.edr -emat .{0}.xpm >> gmx.log 2>&1'
+               .format(pdb_sub_id, pdb_id), shell=True
                )
+
+
+def read_enemat(pdb_sub_id, idxs):
+    with open('total.' + pdb_sub_id + '.xpm') as x_file:
+        line = ""
+        while "static char *gromacs_xpm[] = {" not in line:
+            line = next(x_file)
+
+        next(x_file)
+
+        levels = {}
+        while "x-axis" not in line:
+            line = next(x_file)
+            tokens = re.split('[ "]', line)
+            levels[tokens[1]] = float(tokens[8])
+
+        next(x_file)
+
+        word_size = len(list(levels.keys())[0])
+
+        results = {}
+        i = 0
+        for line in x_file:
+            for j in range(len(idxs)):
+                results[(idxs[i], idxs[j])] = levels[line[(1 + word_size * j):(1 + word_size * (j + 1))]]
+            i += 1
+
+    return results
