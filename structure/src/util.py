@@ -149,18 +149,35 @@ def create_index(pdb_id, pdb_sub_id, keep_idxs):
     return res_ids
 
 
-def prepare_gmx(pdb_id, pdb_file, gmx_dir):
-    check_call('gmx pdb2gmx -quiet -f {0} -o {1}.pdb -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
-               'gmx editconf -quiet -f {1}.pdb -o {1}.pdb -c -d 1.0 -bt cubic >> gmx.log 2>&1'.
-               format(pdb_file, pdb_id), shell=True
+def prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path):
+    param_template_path += "/ions.mdp"
+
+    check_call('gmx pdb2gmx -f {0} -o {1}.pdb -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
+               'gmx editconf -f {1}.pdb -o {1}.pdb -c -d 1.2 -bt cubic >> gmx.log 2>&1; '
+               'gmx solvate -cp {1}.pdb -cs spc216.gro -o {1}.pdb -p {1}.top >> gmx.log 2>&1; '.
+               # 'gmx grompp -f {2} -c {1}.pdb -p {1}.top -o {1}.ions.tpr >> gmx.log 2>&1; '
+               # 'gmx genion -nice 0 -neutral -s {1}.ions.tpr -o {1}.pdb -p {1}.top '
+               # '-pname NA -nname CL -conc 0.154 -rmin 0.4 >> gmx.log 2>&1'.
+               format(pdb_file, pdb_id, param_template_path), shell=True
                )
 
 
-def run_single_point(pdb_id, pdb_sub_id, param_template_path, keep_idxs):
-    copyfile(param_template_path, pdb_sub_id + '.mdp')
+def run_minimization(pdb_id, param_template_path):
+    param_template_path += '/minim.mdp'
 
-    with open(pdb_sub_id + '.mdp', 'a') as f:
+    check_call('gmx grompp -c {0}.pdb -p {0}.top -f {1} -o {0}.m.tpr >> gmx.log 2>&1; '
+               'gmx mdrun -s {0}.m.tpr -c {0}.m.pdb -nb cpu >> gmx.log 2>&1; '
+               .format(pdb_id, param_template_path), shell=True
+               )
+
+
+def run_single_point(pdb_id, pdb_sub_id, param_template_path, minimized, keep_idxs):
+    copyfile(param_template_path + '/sp.mdp', pdb_sub_id + '.sp.mdp')
+
+    with open(pdb_sub_id + '.sp.mdp', 'a') as f:
         f.write('\nenergygrps\t= ' + ' '.join(keep_idxs))
+
+    suffix = '.m' if minimized else ''
 
     # Writing the following lines take several days. Funny quotes written by GROMACS to stderr and
     # mailing list replies containing not a single word except a (broken) link to extremely concise
@@ -170,10 +187,10 @@ def run_single_point(pdb_id, pdb_sub_id, param_template_path, keep_idxs):
     # ndx/groups files are used to mark residues of interest and calculate interaction energies
     # NOTE: without -nb CPU energies are not stored.
 
-    check_call('gmx grompp -c {1}.pdb -p {1}.top -n {0}.ndx -f {0}.mdp -o {0}.tpr >> gmx.log 2>&1; '
-               'gmx mdrun -s {0}.tpr -rerun {1}.pdb -e {0}.edr -nb cpu >> gmx.log 2>&1; '
+    check_call('gmx grompp -c {1}{2}.pdb -p {1}.top -n {0}.ndx -f {0}.sp.mdp -o {0}.tpr >> gmx.log 2>&1; '
+               'gmx mdrun -s {0}.tpr -rerun {1}{2}.pdb -e {0}.edr -nb cpu >> gmx.log 2>&1; '
                'gmx enemat -groups {0}.dat -nlevels 10000 -f {0}.edr -emat .{0}.xpm >> gmx.log 2>&1'
-               .format(pdb_sub_id, pdb_id), shell=True
+               .format(pdb_sub_id, pdb_id, suffix), shell=True
                )
 
 

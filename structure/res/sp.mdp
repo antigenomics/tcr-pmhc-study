@@ -10,7 +10,7 @@ rlist			= 1.0
 
 ; Electrostatics
 coulombtype		= PME
-rcoulomb		= 1.0
+rcoulomb		= 0.8
 
 ; van der Waals
-rvdw			= 1.0
+rvdw			= 0.8

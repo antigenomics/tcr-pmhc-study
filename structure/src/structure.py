@@ -16,16 +16,24 @@ parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotat
                     help="annotation table ptah")
 parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
                     help="output table path")
+parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
+                    help="temporary folder path")
+parser.add_argument("-m", nargs=1, type=bool, default=False,
+                    help="perform an additional minimization round prior to estimating energies")
+parser.add_argument("-e", nargs=1, type=str, default="total",
+                    help="energy term to compute (Coul/LJ-SR/LR or total)")
 
 args = parser.parse_args()
 
 input_file = path.abspath(args.i)
 output_file = path.abspath(args.o)
+minimized = args.m
+energy_term_name = args.e
 
 chdir(path.dirname(path.realpath(__file__)))
 
 # Create temporary folders
-(pdb_dir, gmx_dir) = path.abspath('../tmp/pdb/'), path.abspath('../tmp/gmx/')
+(pdb_dir, gmx_dir) = path.abspath(args.t + '/pdb/'), path.abspath(args.t + '/gmx/')
 
 if path.exists(gmx_dir):
     rmtree(gmx_dir)
@@ -35,13 +43,25 @@ if not path.exists(pdb_dir):
 
 makedirs(gmx_dir)
 
-param_template_path = path.abspath("../res/sp.mdp")
+param_template_path = path.abspath("../res/")
 
-# Work in GROMACS path, as inevitably there will be lots of mess created in work dir
+# Writing output file header
+col_names = ['pdb_id', 'species',
+             'mhc_type', 'chain_mhc_a', 'chain_mhc_b',
+             'antigen_seq',
+             'tcr_v_allele', 'tcr_region',
+             'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
+             'pos_tcr', 'pos_antigen',
+             'distance', 'energy']
 
-chdir(gmx_dir)
+with open(output_file, 'w') as f:
+    f.write('\t'.join(col_names))
 
 # Main loop
+# Work in GROMACS path, as inevitably there will be lots of mess created in work dir
+# and many paths are specified relative to it
+
+chdir(gmx_dir)
 
 pdb_list = PDBList()
 pdb_parser = PDBParser()
@@ -50,20 +70,26 @@ table = pd.read_table(input_file)
 
 bypdb = table.groupby("pdb_id")
 
-results = pd.DataFrame()
+i = 0
 
 for pdb_id, pdb_group in bypdb:
-    print(pdb_id, " : preparing for simulation")
-
     # Load PDB file
     pdb_file = pdb_list.retrieve_pdb_file(pdb_id, pdir=pdb_dir)
+
+    print("[", i, "/", table.shape[0], "]")
+    print(pdb_id, "- preparing for computation")
 
     # Load model from original pdb file
     model = pdb_parser.get_structure(pdb_id, pdb_file)[0]
 
     # Fix PDB structure and make GROMACS files, we'll use it later
+    print(pdb_id, "-- fixing PDB")
     pdb_file = fix_pdb(pdb_id, pdb_file, pdb_group)
-    prepare_gmx(pdb_id, pdb_file, gmx_dir)
+    print(pdb_id, "-- making topology")
+    prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path)
+    if minimized:
+        print(pdb_id, "-- running energy minimization")
+        run_minimization(pdb_id, param_template_path)
 
     # Store annotation for entire complex
     pdb_annot = pdb_group.iloc[0]
@@ -97,7 +123,7 @@ for pdb_id, pdb_group in bypdb:
                     tcr_region_seq_obs, ". Replacing with one from PDB.")
             tcr_annot['tcr_region_seq'] = tcr_region_seq_obs
 
-        print(pdb_id, " : running computations for ", tcr_annot['tcr_v_allele'], '-', tcr_region_id[1])
+        print(pdb_id, "- computing energies for", tcr_annot['tcr_v_allele'], ':', tcr_region_id[1])
 
         # Compute distances and add them to results
         distances = calc_distances(tcr_chain.get_id(), antigen_chain.get_id(),
@@ -117,11 +143,11 @@ for pdb_id, pdb_group in bypdb:
         # Create index and store energy group (aka residue id) order, as GROMACS routines will fail otherwise
         idxs = create_index(pdb_id, pdb_sub_id, keep_idxs)
 
-        # Run single point / molecular dynamics
-        run_single_point(pdb_id, pdb_sub_id, param_template_path, idxs)
+        # Compute energies
+        run_single_point(pdb_id, pdb_sub_id, param_template_path, minimized, idxs)
 
         # Append general annotation, extract and append energies
-        energies = read_enemat(pdb_sub_id, 'total', idxs)
+        energies = read_enemat(pdb_sub_id, energy_term_name, idxs)
 
         for row in distances:
             row.update(tcr_annot.to_dict())
@@ -129,16 +155,10 @@ for pdb_id, pdb_group in bypdb:
 
         results_by_pdb.extend(distances)
 
-    results = results.append(pd.DataFrame(results_by_pdb))
+        i += 1
 
-# Write selected columns
+    # Write selected columns
+    pd.DataFrame(results_by_pdb)[col_names].to_csv(output_file, sep='\t', header=False, index=False, mode='a')
+    print("Done")
 
-col_names = ['pdb_id', 'species',
-             'mhc_type', 'chain_mhc_a', 'chain_mhc_b',
-             'antigen_seq',
-             'tcr_v_allele', 'tcr_region',
-             'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
-             'pos_tcr', 'pos_antigen',
-             'distance', 'energy']
-
-results[col_names].to_csv(output_file, sep='\t', index=False)
+print("Finished processing", table.shape[0], " entries.")
