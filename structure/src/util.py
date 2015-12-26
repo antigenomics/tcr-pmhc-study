@@ -216,7 +216,7 @@ def read_enemat(pdb_sub_id, ene_term, idxs):
         i = 0
         for line in x_file:
             for j in range(len(idxs)):
-                results[(idxs[i], idxs[j])] = levels[line[(1 + word_size * j):(1 + word_size * (j + 1))]]
+                results[(idxs[-i - 1], idxs[j])] = levels[line[(1 + word_size * j):(1 + word_size * (j + 1))]]
             i += 1
 
     return results
