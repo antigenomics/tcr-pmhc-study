@@ -3,12 +3,12 @@ from __future__ import print_function
 import itertools
 import os
 import sys
+import re
+
 from collections import OrderedDict
 from os.path import dirname
 from shutil import copyfile
 from subprocess import check_call
-
-import re
 from Bio.PDB import PDBParser
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
@@ -56,14 +56,14 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
     return [{'tcr_v_allele': tcr_v_allele,
              'tcr_region': tcr_region,
              'idx_tcr': tcr_chain + '_' + str(aa_tcr.get_id()[1]),
-             'idx_ag': antigen_chain + '_' + str(aa_ag.get_id()[1]),
+             'idx_antigen': antigen_chain + '_' + str(aa_ag.get_id()[1]),
              'aa_tcr': get_aa_code(aa_tcr),
-             'aa_ag': get_aa_code(aa_ag),
+             'aa_antigen': get_aa_code(aa_ag),
              'len_tcr': len(tcr_range),
-             'len_ag': len(ag_range),
+             'len_antigen': len(ag_range),
              'pos_tcr': i,
-             'pos_ag': j,
-             'dist': calc_distance(aa_tcr, aa_ag)}
+             'pos_antigen': j,
+             'distance': calc_distance(aa_tcr, aa_ag)}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues)]
 
@@ -92,8 +92,6 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.removeHeterogens(True)
-    # fixer.addMissingHydrogens(7.0)
-    # fixer.addSolvent(fixer.topology.getUnitCellDimensions())
 
     # KeepIds flag is critical here, otherwise we loose all information binding
     pdb_file = dirname(pdb_file) + '/' + pdb_id + '.pdb'
@@ -107,36 +105,29 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
 os.environ['GMX_MAXBACKUP'] = '0'  # suppress shitload of gromacs backups
 
 
-def create_index(pdb_id, pdb_sub_id, chains, keep_idxs):
-    chains_iter = iter(chains)
-    i = 0
+def create_index(pdb_id, pdb_sub_id, keep_idxs):
+    # TODO: check AAs
+
     index = OrderedDict()
 
-    with open(pdb_id + '.gro') as g_file:
-        for _ in range(2):
+    with open(pdb_id + '.pdb') as g_file:
+        for _ in range(4):
             next(g_file)
 
-        prev_res_id = -1
-        chain = next(chains_iter)
-
         for line in g_file:
-            if len(line) >= 44:
-                line = line.replace('\t', '    ')
-                res_id = int(line[0:5].strip())
-                atom_id = int(line[15:20].strip())
+            if line[0:3] == 'TER':
+                continue
+            if line[0:6] == 'ENDMDL':
+                break
 
-                if res_id < prev_res_id:
-                    i += 1
-                    if i >= len(chains):
-                        break
-                    chain = next(chains_iter)
+            res_id = int(line[22:26].strip())
+            atom_id = int(line[4:11].strip())
+            chain_id = line[20:22].strip()
 
-                idx = chain + "_" + str(res_id)
+            idx = chain_id + "_" + str(res_id)
 
-                if idx in keep_idxs:
-                    index.setdefault(idx, []).append(atom_id)
-
-                prev_res_id = res_id
+            if idx in keep_idxs:
+                index.setdefault(idx, []).append(atom_id)
 
     res_ids = []
 
@@ -150,17 +141,17 @@ def create_index(pdb_id, pdb_sub_id, chains, keep_idxs):
                 for atom_id in atom_ids:
                     i_file.write(str(atom_id) + '\n')
 
-    # print("")
-    # print(keep_idxs)
-    # print(res_ids)
-    # print("")
+    missing_res = [x for x in keep_idxs if x not in res_ids]
+    if missing_res:
+        warning("The following residues are missing in processed structure: ",
+                "; ".join(missing_res))
 
     return res_ids
 
 
 def prepare_gmx(pdb_id, pdb_file, gmx_dir):
-    check_call('gmx pdb2gmx -quiet -f {0} -o {1}.gro -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
-               'gmx editconf -quiet -f {1}.gro -o {1}.gro -c -d 1.0 -bt cubic >> gmx.log 2>&1'.
+    check_call('gmx pdb2gmx -quiet -f {0} -o {1}.pdb -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
+               'gmx editconf -quiet -f {1}.pdb -o {1}.pdb -c -d 1.0 -bt cubic >> gmx.log 2>&1'.
                format(pdb_file, pdb_id), shell=True
                )
 
@@ -171,24 +162,23 @@ def run_single_point(pdb_id, pdb_sub_id, param_template_path, keep_idxs):
     with open(pdb_sub_id + '.mdp', 'a') as f:
         f.write('\nenergygrps\t= ' + ' '.join(keep_idxs))
 
-    # Writing the following lines take several days owing to best-practices appliend in writing GROMACS documentation
-    # and the intuitiveness and diversity of GROMACS mailing lists Funny quotes written by GROMACS to stderr and
-    # mailing list replies containing solely (broken) documentation links to pages containing 5-10 words were really
-    # helpful during this process.
+    # Writing the following lines take several days. Funny quotes written by GROMACS to stderr and
+    # mailing list replies containing not a single word except a (broken) link to extremely concise
+    # documentation were really helpful during this process.
 
     # Single-point energies are calculated with -rerun
     # ndx/groups files are used to mark residues of interest and calculate interaction energies
     # NOTE: without -nb CPU energies are not stored.
 
-    check_call('gmx grompp -c {1}.gro -p {1}.top -n {0}.ndx -f {0}.mdp -o {0}.tpr >> gmx.log 2>&1; '
-               'gmx mdrun -s {0}.tpr -rerun {1}.gro -e {0}.edr -nb cpu >> gmx.log 2>&1; '
+    check_call('gmx grompp -c {1}.pdb -p {1}.top -n {0}.ndx -f {0}.mdp -o {0}.tpr >> gmx.log 2>&1; '
+               'gmx mdrun -s {0}.tpr -rerun {1}.pdb -e {0}.edr -nb cpu >> gmx.log 2>&1; '
                'gmx enemat -groups {0}.dat -nlevels 10000 -f {0}.edr -emat .{0}.xpm >> gmx.log 2>&1'
                .format(pdb_sub_id, pdb_id), shell=True
                )
 
 
-def read_enemat(pdb_sub_id, idxs):
-    with open('total.' + pdb_sub_id + '.xpm') as x_file:
+def read_enemat(pdb_sub_id, ene_term, idxs):
+    with open(ene_term + '.' + pdb_sub_id + '.xpm') as x_file:
         line = ""
         while "static char *gromacs_xpm[] = {" not in line:
             line = next(x_file)

@@ -1,48 +1,59 @@
+from __future__ import print_function
+
 import argparse
 import warnings
-from shutil import rmtree
-
 import pandas as pd
-from Bio.PDB import *
 
+from Bio.PDB import *
+from shutil import rmtree
 from util import *
+from os import chdir, path, makedirs
 
 warnings.filterwarnings("ignore")
 
-parser = argparse.ArgumentParser(description="structure.py annotation_table output_table")
+parser = argparse.ArgumentParser(description="structure.py")
+parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
+                    help="annotation table ptah")
+parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
+                    help="output table path")
 
 args = parser.parse_args()
 
-# df = pd.read_table(args[0])
+input_file = path.abspath(args.i)
+output_file = path.abspath(args.o)
 
-table = pd.read_table("../../result/final.annotations.txt")  # TODO
-
-bypdb = table.groupby("pdb_id")
+chdir(path.dirname(path.realpath(__file__)))
 
 # Create temporary folders
-(pdb_dir, gmx_dir) = os.path.abspath('../tmp/pdb/'), \
-                     os.path.abspath('../tmp/gmx/')
+(pdb_dir, gmx_dir) = path.abspath('../tmp/pdb/'), path.abspath('../tmp/gmx/')
 
-if os.path.exists(gmx_dir):
+if path.exists(gmx_dir):
     rmtree(gmx_dir)
 
-if not os.path.exists(pdb_dir):
-    os.makedirs(pdb_dir)
+if not path.exists(pdb_dir):
+    makedirs(pdb_dir)
 
-os.makedirs(gmx_dir)
+makedirs(gmx_dir)
 
-param_template_path = os.path.abspath("../res/sp.mdp")
+param_template_path = path.abspath("../res/sp.mdp")
 
-os.chdir(gmx_dir)
+# Work in GROMACS path, as inevitably there will be lots of mess created in work dir
+
+chdir(gmx_dir)
+
+# Main loop
 
 pdb_list = PDBList()
 pdb_parser = PDBParser()
 
+table = pd.read_table(input_file)
+
+bypdb = table.groupby("pdb_id")
+
 results = pd.DataFrame()
 
-# Main loop
-for pdb_id, pdb_group in itertools.islice(bypdb, 2, 4):  # TODO
-    # pdb_file = "{}pdb{}.ent".format(pdb_dir, pdb_id)
+for pdb_id, pdb_group in bypdb:
+    print(pdb_id, " : preparing for simulation")
 
     # Load PDB file
     pdb_file = pdb_list.retrieve_pdb_file(pdb_id, pdir=pdb_dir)
@@ -86,36 +97,48 @@ for pdb_id, pdb_group in itertools.islice(bypdb, 2, 4):  # TODO
                     tcr_region_seq_obs, ". Replacing with one from PDB.")
             tcr_annot['tcr_region_seq'] = tcr_region_seq_obs
 
+        print(pdb_id, " : running computations for ", tcr_annot['tcr_v_allele'], '-', tcr_region_id[1])
+
         # Compute distances and add them to results
         distances = calc_distances(tcr_chain.get_id(), antigen_chain.get_id(),
                                    tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
                                    tcr_region_residues, antigen_residues, tcr_region_range, antigen_range)
 
         # Run the following separately for each region as GROMACS will not support >64 energy groups on NxN kernels
-        pdb_sub_id = pdb_id + "." + ".".join(tcr_region_id)
+        pdb_sub_id = pdb_id + '.' + '.'.join(tcr_region_id)
 
         # Assign energy groups, create indexes
         keep_idxs = set()
 
         for row in distances:
             keep_idxs.add(row['idx_tcr'])
-            keep_idxs.add(row['idx_ag'])
+            keep_idxs.add(row['idx_antigen'])
 
-        # won't work if the order is not the same
-        idxs = create_index(pdb_id, pdb_sub_id, [chain.get_id() for chain in model], keep_idxs)
+        # Create index and store energy group (aka residue id) order, as GROMACS routines will fail otherwise
+        idxs = create_index(pdb_id, pdb_sub_id, keep_idxs)
 
-        # Run molecular dynamics
+        # Run single point / molecular dynamics
         run_single_point(pdb_id, pdb_sub_id, param_template_path, idxs)
 
-        # Append annotation, extract and append energies
-        energies = read_enemat(pdb_sub_id, idxs)
+        # Append general annotation, extract and append energies
+        energies = read_enemat(pdb_sub_id, 'total', idxs)
 
         for row in distances:
-            row['energy'] = energies.get((row['idx_tcr'], row['idx_ag']), float('nan'))
             row.update(tcr_annot.to_dict())
+            row['energy'] = energies.get((row['idx_tcr'], row['idx_antigen']), float('nan'))
 
         results_by_pdb.extend(distances)
 
     results = results.append(pd.DataFrame(results_by_pdb))
 
-results.to_csv("structure.txt", sep='\t', index=False)
+# Write selected columns
+
+col_names = ['pdb_id', 'species',
+             'mhc_type', 'chain_mhc_a', 'chain_mhc_b',
+             'antigen_seq',
+             'tcr_v_allele', 'tcr_region',
+             'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
+             'pos_tcr', 'pos_antigen',
+             'distance', 'energy']
+
+results[col_names].to_csv(output_file, sep='\t', index=False)
