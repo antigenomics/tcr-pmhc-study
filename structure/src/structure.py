@@ -49,7 +49,7 @@ param_template_path = path.abspath("../res/")
 col_names = ['pdb_id', 'species',
              'mhc_type', 'chain_mhc_a', 'chain_mhc_b',
              'antigen_seq',
-             'tcr_v_allele', 'tcr_region',
+             'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
              'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
              'pos_tcr', 'pos_antigen',
              'distance', 'energy']
