@@ -1,0 +1,16 @@
+; GROMACS parameters for single-point energy estimation
+continuation	= yes
+
+; Neighborsearching and short-range nonbonded interactions
+cutoff-scheme	= verlet
+nstlist			= 1
+ns_type			= grid
+pbc				= xyz
+rlist			= 1.0
+
+; Electrostatics
+coulombtype		= PME
+rcoulomb		= 0.8
+
+; van der Waals
+rvdw			= 0.8
