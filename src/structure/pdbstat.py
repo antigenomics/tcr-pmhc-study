@@ -115,7 +115,11 @@ parser = argparse.ArgumentParser(description='Use --help for more info')
 parser.add_argument('--names', '-n', nargs='+', dest='names', type=str, default=['all'], \
 	help='type a list of pdb files (ex: 1ao7.pdb 1awx.pdb etc.) or "all" to process all listed in the table at once (default: all)')
 parser.add_argument('action', nargs=1, type=str,
-	choices=['nrg', 'dist', 'comp', 'table'], help='what to do with the pdbs')
+	choices=['nrg', 'dist', 'comp', 'table'], help=str('what to do with the pdbs;\n \
+		nrg: puts pairwise energy matrices into folder specified by nrg_dir;\n \
+		dist: puts pairwise distance matrices into folder specified by dist_dir;\n \
+		comp: puts compressed pdb files into folder specified by pdb_dist;\n \
+		table: calculates overall table\n'))
 args = parser.parse_args()
 
 switch = {'nrg': lambda x: Iterate(x, Nrg),
@@ -145,8 +149,8 @@ try:
 	if flag == 'table':
 		result_table = pd.concat([x.summary_table for x in cpx])
 		result_table = result_table.reset_index(drop=True)
-		result_table.to_html(result_table_dir + '/summary_table.html')
-		result_table.to_csv(result_table_dir + '/summary_table.txt', sep = '\t')
+		result_table.to_html(result_table_dir + '/summary_table.html', index=False)
+		result_table.to_csv(result_table_dir + '/summary_table.txt', sep = '\t', index=False)
 except ValueError:
 	print 'NOTHING TO RETURN'
 
