@@ -47,7 +47,7 @@ param_template_path = path.abspath("../res/")
 
 # Writing output file header
 col_names = ['pdb_id', 'species',
-             'mhc_type', 'chain_mhc_a', 'chain_mhc_b',
+             'mhc_type', 'mhc_a_allele', 'mhc_b_allele',
              'antigen_seq',
              'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
              'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
