@@ -149,6 +149,8 @@ ggplot(subset(df.p, contacts > 0),
   theme_bw()
 ```
 
+> TODO: relative contact position density and CDR3 length
+
 ## Features of contacting amino acids
 
 This section of the manuscript deals with amino acid features of TCR and antigen contact residues, such as physical properties and pairing preference. Positional information is not used, however, we restrict our analysis to CDR3 region.
