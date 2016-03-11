@@ -151,6 +151,29 @@ ggplot(subset(df.p, contacts > 0),
 
 > TODO: relative contact position density and CDR3 length
 
+```{r}
+
+df.p1 <- ddply(subset(df, tcr_region == "CDR3"), .(pdb_id, len_tcr, tcr_chain, mhc_type, pos_tcr), summarize,
+              contacts = sum(distance <= DIST_THRESHOLD))
+
+df.p1 <- ddply(df.p1, .(len_tcr, tcr_chain, mhc_type, pos_tcr), summarize,
+               contacts = mean(contacts))
+
+df.p1 <- ddply(df.p1, .(len_tcr, tcr_chain, mhc_type), transform,
+               mean_contacts_pos = sum(pos_tcr * contacts / sum(contacts)))
+
+ggplot(subset(df.p1, contacts > 0), 
+       aes(y=len_tcr)) + 
+  geom_point(aes(x=pos_tcr - len_tcr / 2, size = contacts, color=contacts)) + 
+  geom_point(aes(x=mean_contacts_pos - len_tcr / 2), color="red", shape =3, size=3) +
+  ylab("CDR3 length") +
+  scale_x_continuous(name = "Position, relative to region center", limits=c(-7,7)) + 
+  scale_color_gradient(name = "Mean #contacts", low="#7fcdbb", high="#2c7fb8") +
+  scale_size(guide=F)+
+  facet_grid(tcr_chain ~ mhc_type) + 
+  theme_bw()
+```
+
 ## Features of contacting amino acids
 
 This section of the manuscript deals with amino acid features of TCR and antigen contact residues, such as physical properties and pairing preference. Positional information is not used, however, we restrict our analysis to CDR3 region.
