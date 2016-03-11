@@ -261,9 +261,9 @@ Finally, we have applied our findings to study escape epitope variants from [NIA
 
 * **hla** variants that abrogate MHC binding (**DHB** flag, diminished HLA binding or increased off-rate)
 * **tcr** variants that do not bind or show decreased binding to TCR (**TCR** flag).
-* **other** and all remaining variants
+* **other** unclassified escape variants
 
-As only 9-mer epitopes had substantial number of reported **tcr** variants, we've limited our analysis to this group.
+As only 8,9,10 and 11-mer epitopes had reported **tcr** escape variants, we've limited our analysis to this group.
                 
 ```{r}
 df.epi <- read.csv("ctl_variant.csv", header=T)
@@ -274,12 +274,16 @@ len <- function(x) nchar(as.character(x))
 
 df.epi$codes <- sapply(df.epi$Mutation_Type_Code, function(x) strsplit(as.character(x),", "))
 
-isescape <- function(x) "E" %in% x || "NSF" %in% x
+isescape <- function(x) "E" %in% x || "LE" %in% x || "IE" %in% x || "NSF" %in% x
 
 df.epi$type <- sapply(df.epi$codes, 
-                      function(x) ifelse("TCR" %in% x && isescape(x), "tcr",
-                                  ifelse("DHB" %in% x && isescape(x), "hla", 
-                                         "other")))
+                      function(x) ifelse("TCR" %in% x, "tcr",
+                                  ifelse("DHB" %in% x, "hla", 
+                                  ifelse(isescape(x), "other", 
+                                         "non-escape"
+                                         ))))
+
+df.epi <- subset(df.epi, type != "non-escape")
 
 df.epi <- data.frame(seq = df.epi$Epitope,
                      aa_from = as.character(sapply(df.epi$Mutation_epitope, 
@@ -294,29 +298,38 @@ df.epi <- data.frame(seq = df.epi$Epitope,
                      )
 
 df.epi <- unique(df.epi)
-df.epi <- subset(df.epi, elen %in% c(9))
+df.epi <- subset(df.epi, elen %in% c(8, 9, 10, 11))
+
+df.epi$pos_adj <- apply(df.epi, 1, function(x) as.numeric(x[4])-(as.numeric(x[6]) / 2 + 1))
+
+summary(df.epi)
 ```
 
 As expected, **tcr**-mediate escape mutations are clustered in the central part of antigen (showing a two-peak picture resembling TCR contact positioning plot above), while **hla**-mediate escape mutations are clustered on **N** and **C** termini.
 
 ```{r}
-ggplot(df.epi, aes(x=pos-5, fill=type)) +
+ggplot(df.epi, aes(x=pos_adj, fill=type)) +
   geom_density(alpha=0.5) + 
   xlab("Position, relative to epitope center") +
   ylab("Variant density") +
   scale_fill_brewer(name = "Variant type", palette = "Set1") +
-  scale_x_continuous(limits=c(-4,4)) + theme_bw()
+  scale_x_continuous(limits=c(-6,6)) + theme_bw()
 ```
 
-Next, we have tested the hypothesis that **tcr**-mediated escape variants are biased in the direction of mutations that substantially change TCR recognition profile (*TRP*, i.e. a column from the contact amino acid matrix described above). We have therefore computed correlation coefficients between *TRPs* of original and substituted amino acids and compared them between **hla**, **tcr** and **other** mutation groups.
+Next, we have tested the hypothesis that **tcr**-mediated escape variants are biased in the direction of mutations that substantially change TCR recognition profile (*TRP*, i.e. a column from the contact amino acid matrix described above). We have therefore computed correlation coefficients between *TRPs* of original and substituted amino acids and compared them between **hla**, **tcr** and **other** mutation groups. We have also taken an advantage of positioning data and partitioned the **other** group into **other.tcr** and **other.hla** based on whether the variant was in *[-2, 2]* region in respect to antigen center or not.
 
 ```{r}
 calc_dist <- function(row) cor(contact_mat[,row[2]], contact_mat[,row[3]])
 
-df.epi$pos_adj <- apply(df.epi, 1, function(x) as.integer(as.numeric(x[4])-len(x[1])/2))
+df.epi$type2 <- as.factor(apply(df.epi, 1, function(x) ifelse(x[5] == "other", 
+                                                  ifelse(abs(as.numeric(x[7])) <= 2, "other.tcr", "other.hla"),
+                                                  x[5])))
+
+summary(df.epi)
+
 df.epi$dist <- apply(df.epi, 1, calc_dist)
 
-ggplot(df.epi, aes(x = type, fill=type, group=type, y=dist)) +
+ggplot(df.epi, aes(x = type2, fill=type2, group=type2, y=dist)) +
   geom_boxplot() + xlab("Variant type") + 
   ylab("Correlation of amino acid contact profiles") +
   scale_fill_brewer(guide=F, palette = "Set1") +
@@ -326,9 +339,9 @@ ggplot(df.epi, aes(x = type, fill=type, group=type, y=dist)) +
 There was indeed a clear trend showing that **hla**-mediated escape mutations resulted in similar *TRPs*, while **tcr**-mediated mutations had least similar *TRPs*. Statistical details are given below.
 
 ```{r}
-a<-aov(dist ~ type,df.epi)
-summary(a)
-TukeyHSD(a, "type")
+kruskal.test(dist ~ type2, df.epi)
+wilcox.test(subset(df.epi, type2 == "other.hla")$dist, subset(df.epi, type2 == "other.tcr")$dist)
+wilcox.test(subset(df.epi, type2 == "hla")$dist, subset(df.epi, type2 == "tcr")$dist)
 ```
 
 The analysis described here can be further extended to immunogenic and non-immunogenic mutated self-peptides from cancer peptidomes once a database of cancer epitopes similar to [NIAID HIV databases](http://www.hiv.lanl.gov/) will become available.
