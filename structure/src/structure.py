@@ -55,7 +55,7 @@ col_names = ['pdb_id', 'species',
              'distance', 'energy']
 
 with open(output_file, 'w') as f:
-    f.write('\t'.join(col_names))
+    f.write('\t'.join(col_names) + '\n')
 
 # Main loop
 # Work in GROMACS path, as inevitably there will be lots of mess created in work dir
@@ -157,8 +157,9 @@ for pdb_id, pdb_group in bypdb:
 
         i += 1
 
-    # Write selected columns
+    # Write selected columns and delete gmx/ content
     pd.DataFrame(results_by_pdb)[col_names].to_csv(output_file, sep='\t', header=False, index=False, mode='a')
+    clear_folder(gmx_dir)
     print("Done")
 
 print("Finished processing", table.shape[0], " entries.")

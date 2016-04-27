@@ -12,6 +12,7 @@ from subprocess import check_call
 from Bio.PDB import PDBParser
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
+from Bio.PDB.Vector import rotaxis
 
 
 def clear_folder(d):
@@ -47,8 +48,38 @@ def get_residues(residues, range):
     return [x for i, x in enumerate(residues) if i in range]
 
 
+#def calc_distance(aa1, aa2):
+#    return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+
+def get_expected_cb_pos(aa):
+	n = aa['N'].get_vector() 
+	c = aa['C'].get_vector() 
+	ca = aa['CA'].get_vector()
+	# center at origin
+	n = n - ca
+	c = c - ca
+	# find rotation matrix that rotates n -120 degrees along the ca-c vector
+	rot = rotaxis(-3.14*120.0/180.0, c)
+	# apply rotation to ca-n vector
+	cb_at_origin = n.left_multiply(rot)
+	# put on top of ca atom
+	return (cb_at_origin + ca)
+
+def get_cbeta_pos(aa):
+	if aa.get_resname() == 'GLY':
+		return get_expected_cb_pos(aa)
+	else:
+		ca = aa['CA'].get_vector()
+		try:
+			cb = aa['CB'].get_vector()
+		except KeyError:
+			cb = get_expected_cb_pos(aa)
+		#print ((ca + (((cb - ca).normalized()) ** 2.4)))
+		return (ca + (((cb - ca).normalized()) ** 2.4))
+
 def calc_distance(aa1, aa2):
-    return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+    #return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+    return (get_cbeta_pos(aa1) - get_cbeta_pos(aa2)).norm()
 
 
 def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
