@@ -54,26 +54,32 @@ def sequenceMap = new HashMap<String, String>()
 
 println "Extracting amino acid sequences of 'tcr' polymers"
 
-new File("../tmp/tcr.fasta").withPrintWriter { pw ->
-    new File(args[0]).eachLine { it, ind ->
-        if (ind == 1) return
-        def splitLine = it.split("\t")
+input = new File("../tmp/tcr.fasta")
+if (!input.exists()) { input.mkdirs() }
 
-        if (splitLine[3] == "tcr") {
-            def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
-
-            def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
-            pw.println(">$id")
-            pw.println(seq)
-            sequenceMap.put(id.toString(), seq)
-        }
+input.withPrintWriter { pw ->
+	new File(args[0]).eachLine { it, ind ->
+		if (ind == 1) return
+		def splitLine = it.split("\t")
+		if (splitLine[3] == "tcr") {
+		    def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
+		    def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
+		    pw.println(">$id")
+		    pw.println(seq)
+		    sequenceMap.put(id.toString(), seq)
+		}
     }
 }
 
+/*def key = ""
+input.eachLine { line ->
+    (line[0] == '>') ? key = line[1..-1] : sequenceMap.put(key.toString(), line)
+}*/
+
 println "IG-BLAST'ing"
 
-def proc = "igblastp -germline_db_V ../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query " +
-        "../tmp/tcr.fasta -out ../tmp/tcr.blast".execute()
+def proc = ("igblastp -germline_db_V ../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query " +
+        "../tmp/tcr.fasta -out ../tmp/tcr.blast").execute()
 
 proc.waitFor()
 
@@ -88,6 +94,8 @@ def vPattern = Pattern.compile(
         //                      query subject     identity      length
         /# Hit table(?:.+\n)+V\t(\S+)\t(\S+)\t(\d+(?:\.\d+)?)\t([0-9]+)\t.+/
 )
+// new line                                 query
+def idPattern = Pattern.compile(/# Query:\s+(.+\n)/)
 
 def groomMatch = { Matcher matcher ->
     matcher.size() > 0 ? matcher[0][1..-1] : null//[]
@@ -95,6 +103,11 @@ def groomMatch = { Matcher matcher ->
 
 def minIdent = 0.8, minAlignedBases = 30
 def mapped = 0
+
+// new line
+def fullSeqs = new File("../tmp/for_J_reg_annot.txt")
+// new line
+fullSeqs.withPrintWriter { pw -> pw.print("") }
 
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tv_match\tv_allele\tregion\tstart\tend\tseq")
@@ -104,11 +117,12 @@ new File(args[1]).withPrintWriter { pw ->
     def processChunk = {
         if (chunk.length() > 0) {
             def vHit = groomMatch(chunk =~ vPattern)
-
-            def id = vHit[0].toString(), match = vHit[1], identity = vHit[2].toDouble() / 100,
+                /* new                                     */
+            def id = groomMatch(chunk =~ idPattern)[0][0..-2], match = vHit[1], identity = vHit[2].toDouble() / 100,
                 seq = sequenceMap[id],
                 span = vHit[3].toInteger()
-
+            
+            
             if (identity >= minIdent && span >= minAlignedBases) {
                 patternsByRegion.each {
                     def regionHit = groomMatch(chunk =~ it.value)
@@ -121,6 +135,9 @@ new File(args[1]).withPrintWriter { pw ->
                             def cdr3match = seq.substring(start) =~ /[FW]G.G/
                             if (cdr3match.find()) {
                                 end = start + cdr3match.start() + 1
+                                //new line                        
+                                fullSeqs.append(">"+[id.split("\\|")[0, 2], match.split("\\|")[1][0..2]].flatten()[0,2,1].join("|")+
+                                    "\n"+seq.substring(start)+"\n")
                             }
                         } else {
                             end = regionHit[1].toInteger()

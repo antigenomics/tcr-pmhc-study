@@ -14,6 +14,8 @@ warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser(description="structure.py")
 parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
                     help="annotation table ptah")
+parser.add_argument("-j", nargs=1, type=str, default="../../result/tcr.jreg.annotations.txt",
+                    help="J-region annotation table")
 parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
                     help="output table path")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
@@ -27,6 +29,7 @@ args = parser.parse_args()
 
 input_file = path.abspath(args.i)
 output_file = path.abspath(args.o)
+jreg_file = path.abspath(args.j)
 minimized = args.m
 energy_term_name = args.e
 
@@ -158,7 +161,8 @@ for pdb_id, pdb_group in bypdb:
         i += 1
 
     # Write selected columns and delete gmx/ content
-    pd.DataFrame(results_by_pdb)[col_names].to_csv(output_file, sep='\t', header=False, index=False, mode='a')
+    res = pd.DataFrame(results_by_pdb)[col_names]
+    res.to_csv(output_file, sep='\t', header=False, index=False, mode='a')
     clear_folder(gmx_dir)
     print("Done")
 

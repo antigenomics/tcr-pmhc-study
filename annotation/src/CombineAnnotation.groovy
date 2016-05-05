@@ -160,7 +160,7 @@ new File(args[3]).withPrintWriter { pw ->
             "chain_mhc_b\tmhc_b_allele\t" +
             "mhc_type\t" +
             "chain_antigen\tantigen_seq\t" +
-            "chain_tcr\ttcr_v_allele\t" +
+            "chain_tcr\ttcr_v_allele\ttcr_j_allele\t" +
             "tcr_region\ttcr_region_start\ttcr_region_end\ttcr_region_seq")
     complexMap.values().each { Complex complex ->
         boolean problems = false
