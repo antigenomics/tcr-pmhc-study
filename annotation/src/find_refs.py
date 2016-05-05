@@ -158,13 +158,12 @@ def get_pubmed_id2(pdb_id):
     except BaseException:
         return ''
 
-
+'''
 # In[94]:
 
 print('Fetch PubMed IDs...')
 
 refs = pd.Series([get_pubmed_id2(pdb_id) for pdb_id in db['chunk.id']], list(db['chunk.id']))
-
 
 # In[ ]:
 
@@ -200,11 +199,13 @@ refs[refs.apply(lambda x: x[-1] == '?' if x else False)]
 refs['1ao7'] = '8906788'
 refs['1oga'] = '12796775'
 
-
 # In[169]:
 
 pretty_refs = refs.apply(lambda x: 'PMID:'+str(x))
+'''
 
+pretty_refs = pd.read_csv('../tmp/references.txt', sep='\t', index_col=0)
+pretty_refs = pretty_refs['reference.id']
 
 # In[172]:
 
