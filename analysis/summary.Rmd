@@ -2,7 +2,7 @@
 title: "Hallmarks of TCR:peptide:MHC interactions inferred from structural data mining."
 author: "Mikhail Shugay"
 date: "February 29, 2016"
-output: pdf_document
+output: html_document
 ---
 
 ## Structural data used in the study
@@ -63,19 +63,25 @@ ggplot(subset(df, distance <= 10 & energy <= 0),
 The first hypothesis we've tested was the correlation between number of antigen contacts with TCR alpha and beta chains within the same TCR:peptide:MHC complex. We've focused on CDR3 region as the one having a critical role in antigen specificity and MHCI molecules. Based on previous observations of [Yokosuka et al. 2002](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2193687/) and [Turner et al. 1997](http://www.ncbi.nlm.nih.gov/pubmed/9278320), we have hypothesized that while the number of CDR3-antigen contacts per complex is quite stable, CDR3 regions of alpha and beta chains "compete" for antigen binding, resulting in TCRs in which one of the chains has a dominant role in antigen binding. Indeed, an inverse correlation between number of TCR alpha and beta CDR3-antigen contacts was observed as shown in the plot below.
 
 ```{r}
-df.s <- ddply(subset(df, tcr_region == "CDR3" & mhc_type=="MHCI"), .(pdb_id, tcr_chain),
-              summarize, csum=sum(distance <= DIST_THRESHOLD))
+df.s <- ddply(subset(df, tcr_region == "CDR3" & mhc_type=="MHCI"), 
+              .(pdb_id, tcr_chain),
+              summarize,
+              csum=sum(distance <= DIST_THRESHOLD), 
+              len = mean(len_tcr),
+              mhc_a_allele = mhc_a_allele[1]
+              )
 df.s <- subset(df.s, csum > 0)
 df.s <- merge(subset(df.s, tcr_chain=="TRA"), subset(df.s, tcr_chain=="TRB"), 
               by="pdb_id", suffixes = c(".TRA",".TRB"))
 
-ggplot(df.s, aes(x=csum.TRA, y=csum.TRB)) + 
+ggplot(df.s, aes(x=csum.TRA / len.TRA, y=csum.TRB / len.TRB)) + 
   geom_smooth(method="lm", color="black") + 
   geom_point(size=4) + 
-  geom_point(size=2,aes(color=csum.TRA-csum.TRB)) +
+  geom_point(size=2, aes(color=csum.TRA-csum.TRB)) +
   scale_color_gradient2(guide = FALSE, low = "#a50026", mid = "#ffffbf", high = "#313695") + 
-  scale_x_continuous(name = "TCR alpha chain CDR3-antigen contacts", limits=c(0,30)) + 
-  scale_y_continuous(name = "TCR beta chain CDR3-antigen contacts", limits=c(0,30))+
+  scale_x_continuous(name = "TCR alpha chain CDR3-antigen contacts", limits=c(0,2)) + 
+  scale_y_continuous(name = "TCR beta chain CDR3-antigen contacts", limits=c(0,2)) +
+  #facet_wrap(~mhc_a_allele.TRA) +
   theme_bw()
 ```
 
@@ -83,6 +89,7 @@ The statistical significance of the observed dependency is given below.
 
 ```{r}
 summary(lm(formula = csum.TRA ~ csum.TRB, data = df.s))
+summary(lm(formula = csum.TRA / len.TRA ~ csum.TRB / len.TRB, data = df.s))
 ```
 
 Distribution of total number of CDR3 contacts per complex is given below.
@@ -147,6 +154,37 @@ ggplot(subset(df.p, contacts > 0),
   scale_x_continuous(name = "Position, relative to region center", limits=c(-8,8)) +
   facet_grid(sequence~tcr_region) + 
   theme_bw()
+```
+
+Concat profile:
+
+```{r}
+library(stats)
+
+df.pp <- subset(df.p, sequence == "TCR" & tcr_region == "CDR3")
+wt <- ifelse(df.pp$contacts == 0, 0, 1)
+wt <- wt / sum(wt)
+d1 <- density(df.pp$pos_norm, weights = wt, from=-7, to=7, n=29)
+plot(d1$x, d1$y)
+print(data.frame(x=d1$x, y=d1$y))
+
+wt <- df.pp$contacts
+wt <- wt / sum(wt)
+d2 <- density(df.pp$pos_norm, weights = wt, from=-7, to=7, n=29)
+plot(d2$x, d2$y)
+print(data.frame(x=d2$x, y=d2$y))
+```
+
+```{r}
+df.pp <- ddply(subset(df.p, sequence == "TCR" & tcr_region == "CDR3"),
+               .(pos_norm), summarize,
+               total_contacts = sum(contacts))
+
+df.pp$total_contacts <- df.pp$total_contacts / sum(df.pp$total_contacts)
+
+print(df.pp)
+
+ggplot(df.pp, aes(x=pos_norm, y=total_contacts)) + geom_bar(stat="identity")
 ```
 
 > TODO: relative contact position density and CDR3 length
@@ -254,6 +292,34 @@ heatmap.2(contact_mat, col=colorpanel(100, "#f0f0f0", "#7fcdbb", "#2c7fb8"),
           density.info = "none", trace="none")
 ```
 
+Raw number of contacts for CDR3 residues:
+
+```{r}
+rowSums(contact_mat)
+```
+
+Normalize contact matrix:
+
+```{r}
+contact_mat_norm <- contact_mat
+rSum <- rowSums(contact_mat_norm)
+cSum <- colSums(contact_mat_norm)
+contact_mat_norm<-sweep(contact_mat_norm, 1, sqrt(rSum), `/`)
+contact_mat_norm<-sweep(contact_mat_norm, 2, sqrt(cSum), `/`)
+contact_mat_norm[is.na(contact_mat_norm)]<-0
+
+heatmap.2(contact_mat_norm, col=colorpanel(100, "#f0f0f0", "#7fcdbb", "#2c7fb8"),
+          hclustfun = function(d) hclust(d, method="ward"),
+          ColSideColors = colgen(colnames(contact_mat), "polar", "white", "white", "black"), 
+          RowSideColors = colgen(rownames(contact_mat), "core", "white", "grey", "black"),
+          density.info = "none", trace="none")
+```
+
+Normalized number of contacts for CDR3 residues:
+
+```{r}
+rowSums(contact_mat_norm)
+```
 
 ## Application of findings to HIV escape epitope data
 
