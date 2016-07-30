@@ -1,0 +1,1 @@
+Scripts used for generating VDJdb-like chunk from structural data. Quite a mess here, but some useful ideas/implementations are present.

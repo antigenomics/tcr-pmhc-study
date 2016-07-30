@@ -15,7 +15,7 @@ from google import search
 
 # In[143]:
 
-df = pd.read_csv('../../result/final.annotations.txt', sep='\t')
+df = pd.read_csv('../result/final.annotations.txt', sep='\t')
 grouped = df.groupby('pdb_id')
 
 
@@ -73,6 +73,8 @@ ind = db['chunk.id'].apply(type) == float
 if any(ind):
     db.loc[ind, 'chunk.id'] = '4e41'
 
+# ^ Seriously? Is that how we fix things? MS
+
 
 # In[88]:
 
@@ -112,7 +114,7 @@ def get_pubmed_id(pdb_id):
 
 # In[90]:
 
-#refs = pd.Series([get_pubmed_id(pdb_id) for pdb_id in db['chunk.id']], list(db['chunk.id']))
+refs = pd.Series([get_pubmed_id(pdb_id) for pdb_id in db['chunk.id']], list(db['chunk.id']))
 
 
 # In[91]:
@@ -122,9 +124,9 @@ def get_pubmed_id(pdb_id):
 
 # In[92]:
 
-#refs = refs.apply(lambda x: 'PMID'+x)
-#db['reference.id'] = refs
-#db.to_csv('database.txt', sep='\t', index=False)
+refs = refs.apply(lambda x: 'PMID'+x)
+db['reference.id'] = refs
+db.to_csv('database.txt', sep='\t', index=False)
 
 
 # In[93]:
@@ -158,52 +160,6 @@ def get_pubmed_id2(pdb_id):
     except BaseException:
         return ''
 
-'''
-# In[94]:
-
-print('Fetch PubMed IDs...')
-
-refs = pd.Series([get_pubmed_id2(pdb_id) for pdb_id in db['chunk.id']], list(db['chunk.id']))
-
-# In[ ]:
-
-print('Filling missed values')
-
-# In[166]:
-
-refs[refs == '']
-
-
-# In[154]:
-
-refs['1bd2'] = '9586631'
-refs['1fo0'] = '11017099'
-refs['1fyt'] = '11060013'
-refs['2f53'] = '16600963'
-refs['2f54'] = '16600963'
-refs['3d39'] = '19698083'
-refs['4eup'] = ''
-refs['4ftv'] = ''
-refs['4e41'] = '17334368'
-refs['5d2l'] = '26429912'
-refs['5d2n'] = '26429912'
-
-
-# In[165]:
-
-refs[refs.apply(lambda x: x[-1] == '?' if x else False)]
-
-
-# In[164]:
-
-refs['1ao7'] = '8906788'
-refs['1oga'] = '12796775'
-
-# In[169]:
-
-pretty_refs = refs.apply(lambda x: 'PMID:'+str(x))
-'''
-
 pretty_refs = pd.read_csv('../tmp/references.txt', sep='\t', index_col=0)
 pretty_refs = pretty_refs['reference.id']
 
@@ -211,5 +167,5 @@ pretty_refs = pretty_refs['reference.id']
 
 db.index = db['chunk.id']
 db.loc[:, 'reference.id'] = pretty_refs
-db.to_csv('../../result/database.txt', sep='\t', index=False)
-print('Saved to ../../result/database.txt')
+db.to_csv('database.txt', sep='\t', index=False)
+print('Saved to database.txt')
