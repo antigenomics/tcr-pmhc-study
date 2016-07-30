@@ -1,5 +1,7 @@
 ## Meta-analysis of T-cell receptor:peptide:MHC (TCR:pMHC) complex structural data available in PDB
 
+![Splash](img/splash.png)
+
 > **DISCLAIMER** You are free to use the processed and annotated TCR:pMHC tables in this repo for your research. However, the authors request priority in publishing a meta-analysis of the dataset aggregated and stored here. This message will be removed once this study is officially published. Thank you for understanding.
 
 This repository contains a set of scripts that automate downloading, pre-processing and annotation of TCR:pMHC structural data with the following functionality:
@@ -14,10 +16,14 @@ This repository contains a set of scripts that automate downloading, pre-process
 
 - Computes pairwise amino acid distances and point energies for TCR and peptide residues
 
+### Running the pipeline
+
 To run the pipeline execute the ``run.sh`` script. It will proceed with the list of PDB ids from ``result/extended_pdb_ids.txt``. Some parts of the script are rather time-consuming, especially structural data annotation (downloading PDB files and running GROMACS). The results will be stored in ``result/`` folder:
 
 - ``final.annotations.txt`` contains the list of PDB entries that passed filtering and their annotation
 - ``structure.txt`` contains annotated data on the amino acid level, with pairwise residue distances and interaction energies
+
+Meta-analysis of the resulting dataset is stored in the ``analysis/`` folder.
 
 ### Pre-requisites
 
