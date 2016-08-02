@@ -2,7 +2,7 @@
 title: "Hallmarks of TCR:peptide:MHC interactions inferred from structural data mining."
 author: "Mikhail Shugay"
 date: "February 29, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ## Structural data used in the study
