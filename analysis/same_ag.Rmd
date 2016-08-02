@@ -17,7 +17,8 @@ Select complexes for further analysis. We select complexes that have at least 2 
 
 ```{r}
 df <- subset(df, grepl("TRBV", tcr_v_allele) & tcr_region == "CDR3" &
-               !(pdb_id %in% c("5d2l", "5d2n"))) # remove two complexes that do not have CDR3 contacts
+               !(pdb_id %in% c("5d2l", "5d2n"))) 
+# ^ remove two complexes that do not have CDR3 contacts
 
 library(plyr)
 
@@ -29,13 +30,20 @@ df.ss <- subset(df.s, ncdr > 1 & ncdr == ncompl)
 df.m <- subset(df, antigen_seq %in% df.ss$antigen_seq)
 ```
 
-Next, we will draw contact maps, i.e. heatmaps of pairwise distances between CDR3beta and antigen residues as computed from structural data.
+Next, we will draw contact maps, i.e. heatmaps of pairwise distances between CDR3beta and antigen residues as computed from structural data. We will also provide multiple alignments of CDR3beta sequences associated with a given antigen after each plot.
 
 ```{r, echo=FALSE}
 library(ggplot2)
 
+# source("https://bioconductor.org/biocLite.R")
+# biocLite("msa")
+# library(msa) 
+
+library(Biostrings)
+
 plot_ag <- function(ag_seq) {
-  ggplot(subset(df.m, antigen_seq == ag_seq), 
+  df.ma <- subset(df.m, antigen_seq == ag_seq)
+  plt <- ggplot(df.ma, 
          aes(x=pos_antigen, y=pos_tcr, 
              fill=distance, color=distance <= 6)) + 
     geom_tile(size=1) + 
@@ -54,7 +62,28 @@ plot_ag <- function(ag_seq) {
           panel.border=element_blank(),
           panel.grid.major=element_blank(),
           panel.grid.minor=element_blank(),
-          plot.background=element_blank())    
+          plot.background=element_blank())   
+  
+  print(plt)
+  
+  # alns <- msa(inputSeqs = AAStringSeq(as.character(df.ma$tcr_region_seq)), 
+  #            order = "aligned")
+  
+  # msaPrettyPrint(alns,
+  #  output="asis", logoColors = "rasmol",
+  #  shadingMode="functional", shadingModeArg="rasmol",
+  #  askForOverwrite=F)
+  
+  # no multiple alignments so far; MSA won't compile on Mac (need to install R3.3.0 for precompiled binaries)
+  
+  cdr3seqs <- as.character(unique(df.ma$tcr_region_seq))
+  for (i in 1:length(cdr3seqs)) {
+    for (j in 1:length(cdr3seqs)) {
+      if (i < j) {
+        print(pairwiseAlignment(as.character(cdr3seqs[i]), as.character(cdr3seqs[j])))
+        }
+      }
+    }
 }
 
 plot_ag("LLFGYPVYV")
@@ -106,7 +135,8 @@ get_matrix_score <- function(tcr_data1, tcr_data2, offset_range = 5) {
     d2 <- get_pos_dist_mat(tcr_data2)
   
     dd <- merge(d1, d2, by = c("pos_tcr", "pos_antigen"))
-    dmin <- min(dist(rbind(1/dd$distance.x, 1/dd$distance.y))[1] / sqrt(nrow(dd)), dmin)
+    dmin <- min(dist(rbind(1/dd$distance.x, 1/dd$distance.y))[1] / sqrt(nrow(dd)), 
+                dmin)
   }
   -dmin
 }
@@ -221,3 +251,5 @@ legend("bottomright", legend=c("CDR3 alignment score", "Distance matrix RMSD (ne
 ```
 
 QED.
+
+PS. There are similar figures for CDR3alpha chains in the ``analysis/sandbox/`` folder of ``tcr-pmhc-study`` repo.
