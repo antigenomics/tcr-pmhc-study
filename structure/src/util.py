@@ -4,6 +4,7 @@ import itertools
 import os
 import sys
 import re
+import math
 
 from collections import OrderedDict
 from os.path import dirname
@@ -48,9 +49,6 @@ def get_residues(residues, range):
     return [x for i, x in enumerate(residues) if i in range]
 
 
-#def calc_distance(aa1, aa2):
-#    return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
-
 def get_expected_cb_pos(aa):
 	n = aa['N'].get_vector() 
 	c = aa['C'].get_vector() 
@@ -59,11 +57,12 @@ def get_expected_cb_pos(aa):
 	n = n - ca
 	c = c - ca
 	# find rotation matrix that rotates n -120 degrees along the ca-c vector
-	rot = rotaxis(-3.14*120.0/180.0, c)
+	rot = rotaxis(-math.pi*120.0/180.0, c)
 	# apply rotation to ca-n vector
 	cb_at_origin = n.left_multiply(rot)
 	# put on top of ca atom
 	return (cb_at_origin + ca)
+
 
 def get_cbeta_pos(aa):
 	if aa.get_resname() == 'GLY':
@@ -74,15 +73,17 @@ def get_cbeta_pos(aa):
 			cb = aa['CB'].get_vector()
 		except KeyError:
 			cb = get_expected_cb_pos(aa)
-		#print ((ca + (((cb - ca).normalized()) ** 2.4)))
 		return (ca + (((cb - ca).normalized()) ** 2.4))
 
-def calc_distance(aa1, aa2):
-    #return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+
+def calc_distance(aa1, aa2, use_cbeta):
+  if use_cbeta:    
     return (get_cbeta_pos(aa1) - get_cbeta_pos(aa2)).norm()
+  else:
+    return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
 
 
-def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
+def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range, cbeta_dist=False):
     # indexes are required to access gromacs data
     return [{'tcr_v_allele': tcr_v_allele,
              'tcr_region': tcr_region,
@@ -94,7 +95,7 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
              'len_antigen': len(ag_range),
              'pos_tcr': i,
              'pos_antigen': j,
-             'distance': calc_distance(aa_tcr, aa_ag)}
+             'distance': calc_distance(aa_tcr, aa_ag, cbeta_dist)}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues)]
 
