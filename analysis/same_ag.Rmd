@@ -43,26 +43,23 @@ library(Biostrings)
 
 plot_ag <- function(ag_seq) {
   df.ma <- subset(df.m, antigen_seq == ag_seq)
-  plt <- ggplot(df.ma, 
-         aes(x=pos_antigen, y=pos_tcr, 
-             fill=distance, color=distance <= 6)) + 
-    geom_tile(size=1) + 
-    scale_color_manual("Less than threhsold", values =  c("grey50", "black")) +
-    facet_wrap(~tcr_region_seq, scales="free") +
-    scale_fill_gradient2("Distance, A", limits = c(0, 20), midpoint = 10, 
-                         low="#d73027",mid="#e0f3f8",high="#4575b4") +
-    labs(title=paste("Antigen sequence:", ag_seq, sep = " "),
-         x="Position in antigen", y="Position in CDR3") +
-    theme_bw() + 
-    theme(axis.line=element_blank(),
-          axis.text.x=element_blank(),
-          axis.text.y=element_blank(),
-          axis.ticks=element_blank(),
-          panel.background=element_blank(),
-          panel.border=element_blank(),
-          panel.grid.major=element_blank(),
-          panel.grid.minor=element_blank(),
-          plot.background=element_blank())   
+  plt <- ggplot() +     
+            geom_tile(data=df.ma, 
+                   aes(x=pos_antigen, y=pos_tcr, fill=distance)) + 
+            geom_tile(data=subset(df.ma, distance <= 6), 
+                   aes(x=pos_antigen, y=pos_tcr), size=1, color="black", fill=NA) + 
+            scale_color_manual("Less than threhsold", values =  c("grey50", "black")) +
+            facet_wrap(~tcr_region_seq, scales="free") +
+            scale_fill_gradient2("Distance, A", limits = c(0, 18), midpoint = 9, 
+                                 low="#d73027",mid="#e0f3f8",high="#4575b4") +
+            labs(title=paste("Antigen sequence:", ag_seq, sep = " "), 
+                 x="Position in antigen", y="Position in CDR3") +
+            theme_bw() + 
+            theme(axis.line=element_blank(), axis.text.x=element_blank(), axis.text.y=element_blank(),
+                  axis.ticks=element_blank(), 
+                  panel.background=element_blank(), panel.border=element_blank(),
+                  panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+                  plot.background=element_blank())   
   
   print(plt)
   
@@ -108,8 +105,6 @@ Next compute distances by aligning and computing distance matrix RMSD. While the
 Some helper functions to align/compute distance between contact matrices.
 
 ```{r}
-library(Biostrings)
-
 # Global pairwise alignment with default parameters
 
 get_full_seq <- function(tcr_data) {
@@ -172,7 +167,7 @@ ggplot(df.d, aes(x=paste(antigen_seq_1, pdb_id_1),
                  y=paste(antigen_seq_2, pdb_id_2), 
                  size = dist_aln, 
                  color = antigen_seq_1==antigen_seq_2)) +
-  scale_size_continuous("Similarity score") +
+  scale_size_continuous(range = c(0.1, 2), "Similarity score") +
   scale_color_manual("Antigens match", values = c("black", "red")) + 
   labs(title="CDR3 alignment score", x="", y="") + 
   geom_point() + 
@@ -183,7 +178,36 @@ ggplot(df.d, aes(x=paste(antigen_seq_1, pdb_id_1),
                  y=paste(antigen_seq_2, pdb_id_2), 
                  size = dist_mat, 
                  color = antigen_seq_1==antigen_seq_2)) +
-  scale_size_continuous("Similarity score") +
+  scale_size_continuous(range = c(0.1, 2),"Similarity score") +
+  scale_color_manual("Antigens match", values = c("black", "red")) +
+  labs(title="Distance matrix RMSD (neg)", x="", y="") +
+  geom_point() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=60, hjust=1))
+```
+
+The one below is for figure in Main Text:
+
+```{r}
+df.dsub <- subset(df.d, antigen_seq_1 %in% c("AAGIGILTV", "PSGEGSFQPSQENPQ") &
+                    antigen_seq_2 %in% c("AAGIGILTV", "PSGEGSFQPSQENPQ"))
+
+ggplot(df.dsub, aes(x=paste(antigen_seq_1, pdb_id_1), 
+                 y=paste(antigen_seq_2, pdb_id_2), 
+                 size = dist_aln, 
+                 color = antigen_seq_1==antigen_seq_2)) +
+  scale_size_continuous(range = c(1,10), "Similarity score") +
+  scale_color_manual("Antigens match", values = c("black", "red")) + 
+  labs(title="CDR3 alignment score", x="", y="") + 
+  geom_point() + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle=60, hjust=1))
+
+ggplot(df.dsub, aes(x=paste(antigen_seq_1, pdb_id_1), 
+                 y=paste(antigen_seq_2, pdb_id_2), 
+                 size = dist_mat, 
+                 color = antigen_seq_1==antigen_seq_2)) +
+  scale_size_continuous(range = c(1,10), "Similarity score") +
   scale_color_manual("Antigens match", values = c("black", "red")) +
   labs(title="Distance matrix RMSD (neg)", x="", y="") +
   geom_point() + 
@@ -248,6 +272,9 @@ plot(sens.ci, type="shape", col = alpha("#8da0cb", 0.5))
 
 legend("bottomright", legend=c("CDR3 alignment score", "Distance matrix RMSD (neg)"), 
        col=c("#fc8d62", "#8da0cb"), lwd=2)
+
+rocobj1
+rocobj2
 ```
 
 QED.
