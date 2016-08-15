@@ -1,9 +1,30 @@
 ---
 title: "Hallmarks of TCR:peptide:MHC interactions inferred from structural data mining."
 author: "Mikhail Shugay"
-date: "February 29, 2016"
+date: "August 15, 2016"
 output: pdf_document
 ---
+
+```{r}
+# All imports
+
+library(plyr)
+library(ggplot2)
+library(reshape2)
+library(gplots)
+
+# Helper functions
+
+corrt <- function(r,n) r*sqrt((n-2)/(1-r^2))
+calcpvalr <- function(r, n=20) {
+  pval <- pt(corrt(r, n), n)
+  min(pval, 1-pval)
+}
+
+p.annot <- function(p.val) {
+  ifelse(p.val<0.001, "***", ifelse(p.val<0.01, "**", ifelse(p.val<0.05, "*", ifelse(p.val<0.1, "+", ""))))
+}
+```
 
 ## Structural data used in the study
 
@@ -17,11 +38,6 @@ TCR:peptide:MHC complexe entries were obtained from PDB by a batch query with co
 This dataset was then used to generate a flat table with annotated TCR:antigen amino acid pairs.
 
 ```{r message = FALSE}
-library(plyr)
-library(ggplot2)
-library(reshape2)
-library(gplots)
-
 df <- read.table("../result/structure.txt", header=T, sep="\t")
 df$energy[is.na(df$energy)] <- 0
 
@@ -63,25 +79,27 @@ ggplot(subset(df, distance <= 10 & energy <= 0),
 The first hypothesis we've tested was the correlation between number of antigen contacts with TCR alpha and beta chains within the same TCR:peptide:MHC complex. We've focused on CDR3 region as the one having a critical role in antigen specificity and MHCI molecules. Based on previous observations of [Yokosuka et al. 2002](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2193687/) and [Turner et al. 1997](http://www.ncbi.nlm.nih.gov/pubmed/9278320), we have hypothesized that while the number of CDR3-antigen contacts per complex is quite stable, CDR3 regions of alpha and beta chains "compete" for antigen binding, resulting in TCRs in which one of the chains has a dominant role in antigen binding. Indeed, an inverse correlation between number of TCR alpha and beta CDR3-antigen contacts was observed as shown in the plot below.
 
 ```{r}
-df.s <- ddply(subset(df, tcr_region == "CDR3"),# & mhc_type=="MHCI"), 
+df.s <- ddply(subset(df, tcr_region == "CDR3"),
               .(pdb_id, tcr_chain),
               summarize,
-              csum=sum(distance <= DIST_THRESHOLD), 
-              len = mean(len_tcr),
-              mhc_a_allele = mhc_a_allele[1]
+              csum= sum(distance <= DIST_THRESHOLD), 
+              len = mean(len_tcr)
               )
-df.s <- subset(df.s, csum > 0)
+
+no_contact_pdb <- unique(with(subset(df.s, csum == 0), paste(pdb_id, tcr_chain)))
+
+df.s <- subset(df.s, !(paste(pdb_id, tcr_chain) %in% no_contact_pdb))
 df.s <- merge(subset(df.s, tcr_chain=="TRA"), subset(df.s, tcr_chain=="TRB"), 
               by="pdb_id", suffixes = c(".TRA",".TRB"))
 
-ggplot(df.s, aes(x=csum.TRA / len.TRA, y=csum.TRB / len.TRB)) + 
+
+ggplot(df.s, aes(x=csum.TRA, y=csum.TRB)) + 
   geom_smooth(method="lm", color="black") + 
   geom_point(size=4) + 
   geom_point(size=2, aes(color=csum.TRA-csum.TRB)) +
   scale_color_gradient2(guide = FALSE, low = "#a50026", mid = "#ffffbf", high = "#313695") + 
-  scale_x_continuous(name = "TCR alpha contacts, normalized", limits=c(0,2)) + 
-  scale_y_continuous(name = "TCR beta contacts, normalized", limits=c(0,2)) +
-  #facet_wrap(~mhc_a_allele.TRA) +
+  scale_x_continuous(name = "TCR alpha contacts", limits=c(0,30)) + 
+  scale_y_continuous(name = "TCR beta contacts", limits=c(0,30)) +  
   theme_bw()
 ```
 
@@ -95,9 +113,7 @@ summary(lm(formula = csum.TRA / len.TRA ~ csum.TRB / len.TRB, data = df.s))
 Distribution of total number of CDR3 contacts per complex is given below.
 
 ```{r}
-df.s <- ddply(df.s, .(pdb_id),
-              summarize, csum=csum.TRA+csum.TRB)
-summary(df.s)
+summary(ddply(df.s, .(pdb_id), summarize, csum=csum.TRA+csum.TRB))
 ```
 
 Number of antigen contacts is correlated with CDR3 length:
@@ -131,8 +147,10 @@ Additionally, it appears that MHCI complexes have a higer number of TCR-antigen 
 df.r <- ddply(df, .(pdb_id, tcr_chain, tcr_region, mhc_type), summarize, 
               csum=sum(distance <= DIST_THRESHOLD))
 
-ggplot(subset(df.r, csum > 0), aes(x=tcr_region,group=tcr_region,y=csum,fill=tcr_region)) + 
-  geom_boxplot() + xlab("TCR region") + ylab("Number of contacts") +
+ggplot(subset(df.r, csum > 0), aes(x=tcr_region,group=tcr_region,y=csum)) + 
+  geom_violin() +
+  geom_boxplot(aes(fill=tcr_region),width=0.1) +
+  xlab("TCR region") + ylab("Number of contacts") +
   scale_fill_brewer(guide = F, palette = "Set1") +
   facet_grid(tcr_chain~mhc_type) + theme_bw()
 ```
@@ -170,15 +188,14 @@ ggplot(subset(df.p, contacts > 0),
   geom_density(alpha=0.8) + 
   scale_fill_brewer(name = "TCR chain", palette = "Set1") + 
   ylab("Contact density") +
-  scale_x_continuous(name = "Position, relative to region center", limits=c(-8,8)) +
+  scale_x_continuous(name = "Position, relative to region center", limits=c(-8, 8)) +
   facet_grid(sequence~tcr_region) + 
   theme_bw()
 ```
 
-Relative contact position density and CDR3 length
+Relative contact position density and CDR3 length.
 
 ```{r}
-
 df.p1 <- ddply(subset(df, tcr_region == "CDR3"), .(pdb_id, len_tcr, tcr_chain, mhc_type, pos_tcr), summarize,
               contacts = sum(distance <= DIST_THRESHOLD))
 
@@ -200,79 +217,358 @@ ggplot(subset(df.p1, contacts > 0),
   theme_bw()
 ```
 
-## Features of contacting amino acids
+Contour map for contacts between alpha-beta CDR3 and antigen. Dashed lines show mean contact position in CDR3 (vertical) and antigen (horizontal), shaded areas show +/- SD.
+
+```{r}
+df.p2 <- ddply(subset(df, tcr_region == "CDR3" & distance <= DIST_THRESHOLD), 
+               .(pdb_id, tcr_chain, pos_tcr, pos_antigen), summarize,
+               pos_norm_tcr = 2 * (pos_tcr - len_tcr / 2) / len_tcr,
+               pos_norm_antigen = 2 * (pos_antigen - len_antigen / 2) / len_antigen,
+               odd = len_tcr %% 2 == 0)
+
+df.p3 <- ddply(df.p2, .(tcr_chain), summarize,
+               pos_mean_tcr = mean(pos_norm_tcr),
+               pos_sd_tcr = sd(pos_norm_tcr),
+               pos_mean_antigen = mean(pos_norm_antigen),
+               pos_sd_antigen = sd(pos_norm_antigen))
+
+ggplot(df.p2, aes(x=pos_norm_tcr, y=pos_norm_antigen)) +
+  stat_density_2d(aes(fill = ..level..), geom = "polygon", alpha=0.3) +
+  geom_density_2d(aes(color=tcr_chain)) + 
+  scale_color_brewer(palette = "Set1") +
+  annotate(geom="rect", ymin=df.p3[1,4]-df.p3[1,5], ymax=df.p3[1,4]+df.p3[1,5], xmin=-Inf, xmax=+Inf, 
+           fill="red", alpha=0.1) +
+  geom_hline(yintercept=df.p3[1,4], color="red", linetype="dashed") +
+  annotate(geom="rect", ymin=df.p3[2,4]-df.p3[2,5], ymax=df.p3[2,4]+df.p3[2,5], xmin=-Inf, xmax=+Inf, 
+           fill="blue", alpha=0.1) +
+  geom_hline(yintercept=df.p3[2,4], color="blue", linetype="dashed") +
+  annotate(geom="rect", xmin=df.p3[1,2]-df.p3[1,3], xmax=df.p3[1,2]+df.p3[1,3], ymin=-Inf, ymax=+Inf, 
+           fill="red", alpha=0.1) +
+  geom_vline(xintercept=df.p3[1,2], color="red", linetype="dashed") +
+  annotate(geom="rect", xmin=df.p3[2,2]-df.p3[2,3], xmax=df.p3[2,2]+df.p3[2,3], ymin=-Inf, ymax=+Inf, 
+           fill="blue", alpha=0.1) +
+  geom_vline(xintercept=df.p3[2,2], color="blue", linetype="dashed") +
+  annotate(geom="point", x=df.p3[1,2], y=df.p3[1,4],
+           color="red") +
+  annotate(geom="point", x=df.p3[2,2], y=df.p3[2,4],
+           color="blue") +
+  #annotate(geom="rect", ymin=df.p3[1,4]-df.p3[1,5], ymax=df.p3[1,4]+df.p3[1,5], xmin=-Inf, xmax=+Inf, 
+  #         fill="red", alpha=0.5) +
+  scale_fill_gradient(low="white", high="black") + 
+  scale_x_continuous("Relative position in CDR3", limits=c(-1,1))+
+  scale_y_continuous("Relative position in antigen", limits=c(-1,1))+
+  theme_bw()
+```
+
+Contour plots of CDR3:antigen contact positions for each complex, colored by chain. Linear fitting is performed to bulk contact position plot showing some degree of dependency between CDR3 and antigen position.
+
+```{r}
+library(scales)
+
+ggplot(df.p2, aes(x=pos_norm_tcr, y=pos_norm_antigen, color=tcr_chain)) + 
+  geom_density_2d(size=0.1) +
+  geom_point(size=0.1) +
+  facet_wrap(~pdb_id) + 
+  scale_x_continuous("Relative position in CDR3", limits=c(-1,1), oob = rescale_none)+
+  scale_y_continuous("Relative position in antigen", limits=c(-1,1), oob = rescale_none) +
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_bw() +
+  theme(axis.line=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks=element_blank())
+
+summary(lm(pos_norm_antigen ~ pos_norm_tcr * tcr_chain, df.p2))
+
+ggplot(df.p2, aes(x=pos_norm_tcr, y=pos_norm_antigen, color=tcr_chain)) + 
+  geom_point(shape = 21) + geom_smooth(method="lm") +
+  scale_x_continuous("Relative position in CDR3", limits=c(-1,1), oob = rescale_none)+
+  scale_y_continuous("Relative position in antigen", limits=c(-1,1), oob = rescale_none) +
+  scale_color_brewer(palette = "Set1") +
+  theme_bw()
+```
+
+## Features of CDR3 residues that explain number of antigen contacts they form
 
 This section of the manuscript deals with amino acid features of TCR and antigen contact residues, such as physical properties and pairing preference. Positional information is not used, however, we restrict our analysis to CDR3 region.
 
-### Physical properties of contacting TCR amino acids
+```{r}
+df.0 <- subset(df, tcr_region == "CDR3" & !(paste(pdb_id, tcr_chain) %in% no_contact_pdb)) # also remove chains with 0 contacts
+```
 
-The list of structural and basic physical properties of amino acids was taken from [Elhanati et al 2015](http://arxiv.org/pdf/1502.03136v2.pdf) (FIG. 13).
+Most variance in the number of contacts of a given amino acid is explained by its positioning:
+
+```{r, results = "hide", message=F, warning=F}
+df.c <- ddply(df.0, .(pdb_id, tcr_chain, aa_tcr, pos_tcr), summarize,
+              pos_norm = mean(2 * (pos_tcr - len_tcr / 2) / len_tcr)^2,
+              contacts = sum(distance <= DIST_THRESHOLD),
+              count = 1)
+
+aovsum <- summary(aov(contacts ~ aa_tcr * pos_norm, subset(df.c, aa_tcr != "C")))
+
+var <- aovsum[[1]]["Sum Sq"]
+
+print("Percent of variance explained")
+
+print(var / sum(var) * 100)
+
+aovres <- aov(pos_norm ~ aa_tcr, subset(df.c, aa_tcr != "C"))
+summary(aovres)
+```
+
+Illustrate the above by plotting mean number of contacts vs CDR3 AA frequency at each relative CDR3 position.
+
+```{r}
+df.c1 <- ddply(subset(df.c, aa_tcr != "C"), .(aa_tcr, pos_norm), summarize,
+              contacts_sum = sum(contacts),
+              count = sum(count))
+
+ggplot(df.c1, aes(x=pos_norm)) +  
+  geom_density(aes(weight = contacts_sum), fill="red", color=NA) +
+  geom_density(aes(weight = count), fill=NA, linetype="dashed") +
+  xlab("Distance from CDR3 center") + ylab("") +
+  facet_wrap(~aa_tcr, scales="free_y")+
+  theme_bw() +
+  theme(axis.line=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+### CDR3 AA features and number of contacts
+
+The list of structural and basic physical properties of amino acids was taken from [Elhanati et al 2015](http://arxiv.org/pdf/1502.03136v2.pdf) (FIG. 13). 
 
 ```{r}
 aa_prop <- read.table("aa_properties.txt", header=T)
-
-df.c <- subset(df, distance <= DIST_THRESHOLD & tcr_region == "CDR3")
-df.c$tmp <- 1
-
-# make sure all aa combinations here
-tmp <- data.frame(expand.grid(aa_tcr = levels(aa_prop$aa), aa_antigen = levels(aa_prop$aa)))
-tmp$count <- 0
-df.c <- ddply(df.c, .(aa_tcr, aa_antigen), summarize, count = sum(tmp))
-df.c <- rbind(df.c, tmp)
-df.c <- ddply(df.c, .(aa_tcr, aa_antigen), summarize, count = sum(count))
 ```
 
-We have observed a clear trend between number of contacts and certain properties of CDR3 amino acids. Notably, the **core** property derived in [Martin et al 2012](http://link.springer.com/article/10.1186%2F2046-1682-5-7) as the frequency of a given amino acid in the core region of protein-protein interacting interfaces had the best correlation with the number of contacts.
-
-```{r, results = "hide", message=F, warning=F}
-df.cc <- ddply(df.c, .(aa_tcr), summarize, count = sum(count))
-colnames(df.cc) <- c("aa", "contacts")
-
-df.cc2 <- merge(df.cc, subset(aa_prop, !(property %in% c("charge", "polar"))), all=T)
-
-ggplot(df.cc2, aes(x=value,y=contacts)) + 
-  geom_point() + geom_smooth() + ylab("Number of contacts") + xlab("Property value") +
-  facet_wrap(~property, scales="free_x") + theme_bw() +
-  theme(axis.text.x = element_text(angle = 60, hjust = 1))
-```
-
-Spearman correlation coefficients for each of these properties are given below.
+None of aforementioned AA properties is correlated with mean number of contacts.
 
 ```{r}
-spearmentt <- function(r,n) r*sqrt((n-2)/(1-r^2))
-calcpval <- function(r) {
-  pval <- pt(spearmentt(r, 20), 20)
-  min(pval, 1-pval)
-}
+df.cc <- ddply(df.c, .(aa_tcr), summarize,
+               contacts = sum(contacts),
+               frequency = sum(count))
+df.cc <- merge(df.cc, aa_prop, by.x = "aa_tcr", by.y="aa")
 
-df.cor <- ddply(df.cc2, .(property), summarize, r = cor(contacts, value, method="spearman"))
-df.cor$pvalue <- sapply(df.cor$r, function(r) calcpval(r))
+# Mean number of contacts vs property value
+
+ggplot(df.cc, aes(x=value, y=contacts / frequency)) + 
+  geom_point() + geom_smooth(color="#377eb8", method="lm") +
+  geom_text(aes(label=aa_tcr), color="#e41a1c", vjust=-0.5) +
+  ylab("Mean number of contacts") + xlab("Property value") +
+  facet_wrap(~property, scales="free_x") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+# correlation with mean number of contacts
+df.cor <- ddply(subset(df.cc, !(property %in% c("polar"))), 
+                       .(property), summarize, r = cor(contacts / frequency, value, method="pearson"))
+df.cor$pvalue <- sapply(df.cor$r, function(r) calcpvalr(r))
+df.cor$pvalue <- p.adjust(df.cor$pvalue)
+df.cor$p.annot <- p.annot(df.cor$pvalue)
+
+print(df.cor)
+
+# check polar separately
+t.test(contacts / frequency ~ value, data = subset(df.cc, property == "polar"))
+```
+
+Overall, these results suggest that AA placement in CDR3 is definitive for the number of contacts and this effect should be corrected for to account for individual AA features.
+
+### CDR3 AA contact number factors inferred using positional model
+
+Fit total number of contacts of a given CDR3 AA using GLM. The formula is 
+
+``contacts ~ a(aa_tcr) * exp(-b(aa_tcr) * (pos_tcr - len_tcr/2)^2 / (len_tcr/2)^2)``
+
+```{r}
+# Compute the table of number of CDR3 contacts
+df.contpos1 <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr, aa_tcr, len_tcr), summarize,
+              pos_norm = mean(2*(pos_tcr - len_tcr / 2)/len_tcr)^2,
+              contacts = sum(distance <= DIST_THRESHOLD))
+
+# Strip Cys at all
+df.contpos1 <- subset(df.contpos1, aa_tcr != "C")
+```
+
+Run the fitting with GLM and Poisson distribution family (somewhat time consuming):
+
+```{r}
+fit.c1 <- glm(contacts ~ aa_tcr + pos_norm : aa_tcr - 1, df.contpos1, 
+           family=poisson())
+
+summary(fit.c1)
+```
+
+Check the fitting for the number of contacts for each of individual cases:
+
+```{r}
+df.contpos1$contacts.fit <- fitted.values(fit.c1)
+
+summary(aov(contacts ~ contacts.fit, df.contpos1))
+summary(lm(contacts ~ contacts.fit, df.contpos1))
+
+ggplot() +
+  geom_violin(data=df.contpos1, 
+              aes(x=contacts, y=contacts.fit, group = contacts), fill = "#74a9cf", width=1) + 
+  geom_point(data=ddply(df.contpos1, .(contacts), summarize, med=median(contacts.fit)), 
+             aes(x=contacts, y=med), color="red", size=15, shape=95) +
+  xlab("Number of antigen contacts") + ylab("Estimated value") +
+  theme_bw()
+```
+
+Check the fitting for total sum of contacts in each CDR3:
+
+```{r}
+df.contpos1.sum <- ddply(df.contpos1, .(pdb_id, tcr_chain, len_tcr),
+                        summarize,
+                        contacts.sum = sum(contacts),
+                        contacts.fit.sum = sum(contacts.fit))
+
+ggplot(df.contpos1.sum, aes(log1p(contacts.sum), log1p(contacts.fit.sum))) +   
+  geom_errorbar(aes(ymin = log1p(contacts.fit.sum - sqrt(contacts.fit.sum / len_tcr)),
+                    ymax = log1p(contacts.fit.sum + sqrt(contacts.fit.sum / len_tcr)))) +
+  geom_smooth(method="lm", color="black") + 
+  geom_point(shape=21, size = 4, aes(fill = tcr_chain)) +
+  scale_y_continuous("Estimated value, log(1+x)") +
+  scale_x_continuous("Total number of CDR3 contacts, log(1+x)") +
+  scale_fill_brewer("TCR chain", palette = "Set1") +
+  theme_bw()
+
+summary(lm(log1p(contacts.fit.sum) ~ log1p(contacts.sum), df.contpos1.sum))
+summary(aov(log1p(contacts.fit.sum) ~ log1p(contacts.sum), df.contpos1.sum))
+```
+
+Now lets analyze the resulting coefficients for each amino acids. First, prepare coefficient table.
+
+```{r}
+df.coef1 <- as.data.frame(summary(fit.c1)$coefficients)
+
+df.coef1$type <- ifelse(grepl("pos_norm", rownames(df.coef1)), "b", "a")
+df.coef1$aa <- sapply(rownames(df.coef1), function(x) strsplit(x,"")[[1]][7])
+
+rownames(df.coef1) <- NULL
+colnames(df.coef1) <- c("value", "std", "z", "P", "type", "aa")
+df.coef1$z <- NULL
+df.coef1$P <- NULL
+```
+
+Compute Z scores and P-values with respect to baseline (average coefficient value).
+
+```{r}
+df.coef1.plt <- subset(df.coef1, type == "a")
+df.coef1.plt$value <- df.coef1.plt$value - mean(df.coef1.plt$value)
+
+# transform mean and std back
+df.coef1.plt$value <- exp(df.coef1.plt$value)
+df.coef1.plt$std <- df.coef1.plt$value * df.coef1.plt$std
+
+# compute P-values
+df.coef1.plt$z <- with(df.coef1.plt, (value - 1) / std)
+df.coef1.plt$p <- 2*pnorm(-abs(df.coef1.plt$z))
+df.coef1.plt$p.adj <- p.adjust(df.coef1.plt$p)
+df.coef1.plt$p.txt <- p.annot(df.coef1.plt$p.adj)
+df.coef1.plt
+```
+
+Plot base coefficients (``a(tcr_aa)``):
+
+```{r}
+df.coef1.plt$strong <- as.factor(ifelse(df.coef1.plt$aa %in% c("C","F","I","L","M","V","W","Y"), "yes", "no"))
+df.coef1.plt$strong <- relevel(df.coef1.plt$strong, "yes")
+
+# order AAs based on value
+df.coef1.plt$aa = with(df.coef1.plt, factor(aa, levels=aa[order(-value)], ordered=TRUE))
+
+ggplot(df.coef1.plt) +   
+  geom_bar(aes(x=aa, y=value, fill=strong), stat="identity", color="black", width=0.7) + 
+  geom_hline(yintercept = 1, color="black", linetype="longdash") + 
+  #geom_point(aes(x=aa, y=-0.1, color=strong), size=8, shape=15) +
+  geom_errorbar(aes(x=aa, ymin=value, ymax=value+std), width=0.4) +
+  geom_text(aes(x=aa, y = value+std + 0.05, label=p.txt)) +
+  xlab("") + scale_y_continuous("",limits=c(-0, 3.5), expand = c(0,0)) +
+  scale_fill_brewer("Strongly interacting (MJ)", palette = "Set1") +
+  theme_bw()
+```
+
+Correlation of coefficients with AA features:
+
+```{r}
+coef.aa_prop <- data.frame(aa=unique(aa_prop$aa))
+coef.aa_prop$coeff <- sapply(coef.aa_prop$aa, function(x) coefficients(fit.c1)[paste("aa_tcr",x,sep = "")])
+coef.aa_prop <- merge(coef.aa_prop, aa_prop)
+coef.aa_prop <- subset(coef.aa_prop, !(aa %in% c("C")))
+
+ggplot(coef.aa_prop, aes(x=value, y=exp(coeff))) + 
+  geom_point() + geom_smooth(color="#377eb8", method="lm") +
+  geom_text(aes(label=aa), color="#e41a1c", vjust=-0.5) +
+  ylab("AA coefficient") + xlab("Property value") +
+  facet_wrap(~property, scales="free_x") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+df.cor <- ddply(subset(coef.aa_prop, !(property %in% c("charge", "polar"))), 
+                       .(property), summarize, r = cor(exp(coeff), value, method="pearson"))
+
+df.cor$pvalue <- sapply(df.cor$r, function(r) calcpvalr(r, 19))
 df.cor$pvalue <- p.adjust(df.cor$pvalue)
 
 print(df.cor)
 ```
 
-Check for polar property seprately (with charge there is no way do any statistics):
+## Amino acid pairing preferences
 
 ```{r}
-df.cc3 <- merge(df.cc, subset(aa_prop, property == "polar"), all=T)
-df.cc3$value <- as.factor(df.cc3$value)
-t.test(contacts ~ value, data = df.cc3)
+df.contpos.2 <- ddply(subset(df.0, aa_tcr != "C"), 
+                           .(pdb_id, tcr_chain, pos_tcr, aa_tcr, pos_antigen, aa_antigen), summarize,
+              pos_norm_tcr = mean(2 * (pos_tcr - len_tcr / 2) / len_tcr) ^ 2,
+              pos_norm_ag = mean(2 * (pos_antigen - len_antigen) / 2 / len_antigen - 
+                                   get_ag_offset(tcr_chain))^2,
+              contacting = distance <= DIST_THRESHOLD)
+              
+fit.c2 <- glm(contacting ~ aa_tcr:aa_antigen + aa_tcr : aa_antigen : pos_norm_tcr : pos_norm_ag - 1, 
+              df.contpos.2, family=binomial())
+
+summary(fit.c2)
 ```
-  
-### Pairwise interaction preferences
-
-Next, we've constructed and analyzed the CDR3-antigen amino acid contact matrix. The matrix is shown as a heatmap below, with row and column dendrograms constructed using hierarchical clustering (Ward's method). Note that here *rows* and *columns* corresponding to CDR3 and antigen amino acids respectively. 
-
-The analysis results demonstrate clear clustering of CDR3 amino acids based on the **core** property, as shown by left color panel (*white* and *black* correspond to low and high **core** property values respectively). Notably, antigen amino acids were also nicely separated based on amino acid polarity, as shown top color panel (*black* corresponds to **polar** amino acids).
 
 ```{r}
-df.cc <- dcast(df.c, aa_tcr ~ aa_antigen, fun.aggregate = mean, value.var="count")
+df.contpos.2$contacts.fit <- fitted.values(fit.c2)
 
-contact_mat <- as.matrix(df.cc[,2:ncol(df.cc)])
-rownames(contact_mat) <- df.cc$aa_tcr 
+ggplot(df.contpos.2, aes(x=contacts.fit, color=contacting)) + geom_density() + theme_bw()
+```
 
+```{r}
+ma <- expand.grid(unique(aa_prop$aa), unique(aa_prop$aa))
+colnames(ma) <- c("aa_tcr", "aa_antigen")
+
+ma$coeff <- mapply(function(x,y) coefficients(fit.c2)[paste("aa_tcr",x,":","aa_antigen",y, sep="")], 
+                      ma$aa_tcr, ma$aa_antigen)
+
+ma$coeff <- ma$coeff - mean(ma$coeff, na.rm = T)
+ma$coeff <- ifelse(ma$coeff < -10, -10, ifelse(ma$coeff > 10, 10, ma$coeff))
+
+ggplot(ma, aes(x=aa_tcr, y=aa_antigen, fill=coeff)) + geom_tile() +
+  scale_fill_gradient2("Coefficient", low = "#2166ac", mid="#f7f7f7", high="#b2182b", 
+                       midpoint = 0)
+```
+
+Pairwise contact matrix:
+
+```{r}
+df.cm <- ddply(df.0, .(aa_tcr, aa_antigen), summarize,
+               contacts_sum = sum(distance <= DIST_THRESHOLD))
+df.cm <- ddply(df.cm, .(aa_tcr), transform, contacts_sum_tcr = sum(contacts_sum))
+df.cm <- ddply(df.cm, .(aa_antigen), transform, contacts_sum_ag = sum(contacts_sum))
+df.cm$contacts_sum_norm <- with(df.cm, contacts_sum / contacts_sum_tcr / contacts_sum_ag)
+df.cm$contacts_sum_norm <- ifelse(is.na(df.cm$contacts_sum_norm), 0, df.cm$contacts_sum_norm)
+
+contact_mat <- dcast(df.cm, aa_tcr ~ aa_antigen, value.var = "contacts_sum")
 contact_mat[is.na(contact_mat)] <- 0
+rownames(contact_mat) <- contact_mat[,1]
+contact_mat[,1] <- NULL
+contact_mat <- contact_mat[-2, ]
+contact_mat <- as.matrix(contact_mat
 
 colgen <- function(aas, p, low, mid, hi) {
   panel <- colorpanel(100, low, mid, hi)
@@ -281,151 +577,15 @@ colgen <- function(aas, p, low, mid, hi) {
   return(panel[df.1$value])
 }
 
-heatmap.2(contact_mat, col=colorpanel(100, "#f0f0f0", "#7fcdbb", "#2c7fb8"),
+heatmap.2(contact_mat,
+          col=colorpanel(100, "#f0f0f0", "#7fcdbb", "#2c7fb8"),
+          distfun = function(x) as.dist(1-cor(t(x))/2),
           hclustfun = function(d) hclust(d, method="ward"),
-          #ColSideColors = colgen(colnames(contact_mat), "polar", "white", "white", "black"), 
-          RowSideColors = colgen(rownames(contact_mat), "core", "white", "grey", "black"),
+          #ColSideColors = colgen(colnames(mat.cm), "volume", "white", "grey", "black"),
           density.info = "none", trace="none")
 ```
 
-Raw number of contacts for CDR3 residues:
-
-```{r}
-rowSums(contact_mat)
-```
-
-Normalize contact matrix:
-
-```{r}
-contact_mat_norm <- contact_mat
-rSum <- rowSums(contact_mat_norm)
-cSum <- colSums(contact_mat_norm)
-contact_mat_norm<-sweep(contact_mat_norm, 1, sqrt(rSum), `/`)
-contact_mat_norm<-sweep(contact_mat_norm, 2, sqrt(cSum), `/`)
-contact_mat_norm[is.na(contact_mat_norm)]<-0
-
-heatmap.2(contact_mat_norm, col=colorpanel(100, "#f0f0f0", "#fdbb84", "#e34a33"),
-          hclustfun = function(d) hclust(d, method="ward"),
-          #ColSideColors = colgen(colnames(contact_mat), "polar", "white", "white", "black"), 
-          RowSideColors = colgen(rownames(contact_mat), "core", "white", "grey", "black"),
-          density.info = "none", trace="none")
-```
-
-Normalized number of contacts for CDR3 residues:
-
-```{r}
-rowSums(contact_mat_norm)
-```
-
-## Estimating the number of CDR3 contacts
-
-We will first estimate ``P(contacting|aa_tcr,pos_norm)``, conditional probability of CDR3:antigen contact for a given CDR3 amino acid. Note that
-
-- ``pos_norm`` is a position of amino acid relative to CDR3 center
-- When ``P`` approaches ``1`` (i.e. always forms a contact in this position) we'll replace it by ``(k+1)/(k+2)``, where ``k`` is the total number of times given amino acid is observed in a given position. Otherwise, we'll have troubles estimating mean number of contacts from poisson distribution for this case.
-
-```{r}
-df.0 <- subset(df, tcr_region == "CDR3")
-
-compute_pos_norm <- function(pos_tcr, len_tcr) {
-  round(pos_tcr - len_tcr[1] / 2)
-  # round((pos_tcr - len_tcr[1] / 2)/3)*3
-}
-
-# P(contact|aa,pos)
-p.cap <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr, aa_tcr), summarize,
-               pos_norm = mean(compute_pos_norm(pos_tcr, len_tcr)),
-               has.contact = max(ifelse(distance <= DIST_THRESHOLD, 1, 0)))
-p.cap <- ddply(p.cap, .(aa_tcr, pos_norm), summarize, 
-               prob = min(mean(has.contact),
-                          # Use (k+1)/(k+2) when P=1, otherwise we'll get problems with Poisson distr
-                          (length(has.contact) + 1)/(length(has.contact) + 2)))
-
-if(FALSE){
-# P(aa|pos)
-p.ap <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr, aa_tcr), summarize,
-               pos_norm = mean(compute_pos_norm(pos_tcr, len_tcr)),
-               count = 1)
-p.ap <- ddply(p.ap, .(aa_tcr, pos_norm), summarize,
-               total = sum(count))
-p.ap <- ddply(p.ap, .(pos_norm), transform,
-               prob = total / sum(total))
-
-# P(pos)
-p.p <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr), summarize,
-               pos_norm = mean(compute_pos_norm(pos_tcr, len_tcr)),
-               count = 1)
-p.p <- ddply(p.p, .(pos_norm), summarize,
-               total = sum(count))
-p.p$prob <- p.p$total / sum(p.p$total)
-}
-```
-
-Plot the heatmap for ``P(contacting|aa_tcr,pos_norm)``.
-
-```{r}
-ggplot(p.cap, aes(x=aa_tcr, y=pos_norm, fill=prob)) + 
-  geom_tile() + 
-  scale_fill_gradient2("Contact probability", low="#f7fcb9", mid="#addd8e", high="#31a354", limits=c(0,1)) +
-  xlab("CDR3 amino acid") + ylab("Position relative to CDR3 center") +
-  theme_bw() +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-```
-
-Now compute number of contacting CDR3 amino acids for our dataset using ``P(contacting|aa_tcr,pos_norm)``. For the total number of contacts, we'll approximate the contact number using poisson distribution as follows ``Poiss(0)=exp(-lambda)=1-P(contacting|aa_tcr,pos_norm)`` therefore ``E[contacts]=-log(1-P(contacting|aa_tcr,pos_norm))``.
-
-```{r}
-compute_contact_prob <- function(aa_tcr, pos_tcr, len_tcr) {
-  pos_norm <- compute_pos_norm(pos_tcr, len_tcr)
-  mapply(function(x, y) p.cap$prob[which(p.cap$pos_norm == x & p.cap$aa_tcr == y)], pos_norm, aa_tcr)
-}
-
-df.o <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr), summarize,
-              contacts.obs = max(ifelse(distance <= DIST_THRESHOLD, 1, 0)),
-              contacts.obs.wt = sum(ifelse(distance <= DIST_THRESHOLD, 1, 0)))
-df.o <- ddply(df.o, .(pdb_id, tcr_chain), summarize,
-              contacts.obs = sum(contacts.obs),
-              contacts.obs.wt = sum(contacts.obs.wt))
-df.e <- ddply(subset(df.0, pos_antigen==0), .(pdb_id, tcr_chain), summarize,              
-              contacts.exp = sum(compute_contact_prob(aa_tcr, pos_tcr, len_tcr)),
-              # Using poisson distribution to estimate number of contacats per aa:
-              contacts.exp.wt = sum(-log(1-compute_contact_prob(aa_tcr, pos_tcr, len_tcr)))) 
-
-df.oe <- merge(df.o, df.e)
-
-df.oe <- subset(df.oe, contacts.obs > 0)
-```
-
-Fitting number of contacting amino acids in CDR3:
-
-```{r}
-ggplot(df.oe, aes(x=contacts.obs, y=contacts.exp)) + 
-  geom_smooth(method="lm") + 
-  geom_point(shape=1, size=3) + 
-  scale_x_continuous("Observed contacting amino acids", limits = c(0,10), 
-                     breaks=seq(0,10,2), expand=c(0,0)) +
-  scale_y_continuous("Expected contacting amino acids", limits = c(0,10), 
-                     breaks=seq(0,10,2), expand=c(0,0)) +
-  theme_bw()
-  
-summary(lm(formula = contacts.obs ~ contacts.exp, data=df.oe))
-```
-
-Fitting total number of contacts for CDR3 (i.e. weighted number of contacting amino acids):
-
-```{r}
-ggplot(df.oe, aes(x=contacts.obs.wt, y=contacts.exp.wt)) + 
-  geom_smooth(method="lm") + 
-  geom_point(shape=1, size=3) + 
-  scale_x_continuous("Observed CDR3:antigen contacts", limits = c(0,29),
-                     breaks=seq(0,28,4), expand=c(0,0)) +
-  scale_y_continuous("Expected CDR3:antigen contacts", limits = c(0,29),
-                     breaks=seq(0,28,4), expand=c(0,0)) +
-  theme_bw()
-
-summary(lm(formula = contacts.obs.wt ~ contacts.exp.wt, data=df.oe))
-```
-
+## Application of findings to HIV escape epitope data
 
 ## Application of findings to HIV escape epitope data
 
@@ -451,7 +611,7 @@ isescape <- function(x) "E" %in% x || "LE" %in% x || "IE" %in% x || "NSF" %in% x
 df.epi$type <- sapply(df.epi$codes, 
                       function(x) ifelse("TCR" %in% x, "tcr",
                                   ifelse("DHB" %in% x, "hla", 
-                                  ifelse(isescape(x), "other", 
+                                  ifelse(isescape(x), "unknown", 
                                          "non-escape"
                                          ))))
 
@@ -493,8 +653,8 @@ Next, we have tested the hypothesis that **tcr**-mediated escape variants are bi
 ```{r}
 calc_dist <- function(row) cor(contact_mat[,row[2]], contact_mat[,row[3]])
 
-df.epi$type2 <- as.factor(apply(df.epi, 1, function(x) ifelse(x[5] == "other", 
-                                                  ifelse(abs(as.numeric(x[7])) <= 2, "other.tcr", "other.hla"),
+df.epi$type2 <- as.factor(apply(df.epi, 1, function(x) ifelse(x[5] == "unknown", 
+                                                  ifelse(abs(as.numeric(x[7])) <= 2, "likely-tcr", "likely-hla"),
                                                   x[5])))
 
 summary(df.epi)
@@ -512,7 +672,7 @@ There was indeed a clear trend showing that **hla**-mediated escape mutations re
 
 ```{r}
 kruskal.test(dist ~ type2, df.epi)
-wilcox.test(subset(df.epi, type2 == "other.hla")$dist, subset(df.epi, type2 == "other.tcr")$dist)
+wilcox.test(subset(df.epi, type2 == "likely-hla")$dist, subset(df.epi, type2 == "likely-tcr")$dist)
 wilcox.test(subset(df.epi, type2 == "hla")$dist, subset(df.epi, type2 == "tcr")$dist)
 ```
 
