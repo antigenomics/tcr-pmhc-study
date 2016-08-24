@@ -98,16 +98,14 @@ ggplot(df.s, aes(x=csum.TRA, y=csum.TRB)) +
   geom_point(size=4) + 
   geom_point(size=2, aes(color=csum.TRA-csum.TRB)) +
   scale_color_gradient2(guide = FALSE, low = "#a50026", mid = "#ffffbf", high = "#313695") + 
-  scale_x_continuous(name = "TCR alpha contacts", limits=c(0,30)) + 
-  scale_y_continuous(name = "TCR beta contacts", limits=c(0,30)) +  
+  scale_x_continuous(name = "TCR alpha contacts") + 
+  scale_y_continuous(name = "TCR beta contacts") +  
   theme_bw()
-```
 
-The statistical significance of the observed dependency is given below.
+# The statistical significance of the observed dependency is given below.
 
-```{r}
 summary(lm(formula = csum.TRA ~ csum.TRB, data = df.s))
-summary(lm(formula = csum.TRA / len.TRA ~ csum.TRB / len.TRB, data = df.s))
+summary(lm(formula = csum.TRA / len.TRA ~ I(csum.TRB / len.TRB), data = df.s))
 ```
 
 Distribution of total number of CDR3 contacts per complex is given below.
@@ -300,8 +298,16 @@ df.0 <- subset(df, tcr_region == "CDR3" & !(paste(pdb_id, tcr_chain) %in% no_con
 Most variance in the number of contacts of a given amino acid is explained by its positioning:
 
 ```{r, results = "hide", message=F, warning=F}
+pos_mean_tcr <- df.p3$pos_mean_tcr
+names(pos_mean_tcr) <- df.p3$tcr_chain
+
+calc_pos_norm <- function(pos_tcr, len_tcr, tcr_chain) {
+  half_len <- len_tcr[1] / 2
+  ((pos_tcr - half_len) / half_len) ^ 2
+}
+
 df.c <- ddply(df.0, .(pdb_id, tcr_chain, aa_tcr, pos_tcr), summarize,
-              pos_norm = mean(2 * (pos_tcr - len_tcr / 2) / len_tcr)^2,
+              pos_norm = calc_pos_norm(pos_tcr, len_tcr)[1],
               contacts = sum(distance <= DIST_THRESHOLD),
               count = 1)
 
@@ -327,7 +333,8 @@ df.c1 <- ddply(subset(df.c, aa_tcr != "C"), .(aa_tcr, pos_norm), summarize,
 ggplot(df.c1, aes(x=pos_norm)) +  
   geom_density(aes(weight = contacts_sum), fill="red", color=NA) +
   geom_density(aes(weight = count), fill=NA, linetype="dashed") +
-  xlab("Distance from CDR3 center") + ylab("") +
+  #scale_x_continuous("Distance from CDR3 center", limits=c(0,1)) +
+  ylab("") +
   facet_wrap(~aa_tcr, scales="free_y")+
   theme_bw() +
   theme(axis.line=element_blank(),
@@ -385,7 +392,7 @@ Fit total number of contacts of a given CDR3 AA using GLM. The formula is
 ```{r}
 # Compute the table of number of CDR3 contacts
 df.contpos1 <- ddply(df.0, .(pdb_id, tcr_chain, pos_tcr, aa_tcr, len_tcr), summarize,
-              pos_norm = mean(2*(pos_tcr - len_tcr / 2)/len_tcr)^2,
+              pos_norm = calc_pos_norm(pos_tcr, len_tcr, tcr_chain)[1],
               contacts = sum(distance <= DIST_THRESHOLD))
 
 # Strip Cys at all
@@ -395,7 +402,7 @@ df.contpos1 <- subset(df.contpos1, aa_tcr != "C")
 Run the fitting with GLM and Poisson distribution family (somewhat time consuming):
 
 ```{r}
-fit.c1 <- glm(contacts ~ aa_tcr + pos_norm : aa_tcr - 1, df.contpos1, 
+fit.c1 <- glm(contacts ~ aa_tcr + aa_tcr : pos_norm - 1, df.contpos1, 
            family=poisson())
 
 summary(fit.c1)
@@ -426,18 +433,18 @@ df.contpos1.sum <- ddply(df.contpos1, .(pdb_id, tcr_chain, len_tcr),
                         contacts.sum = sum(contacts),
                         contacts.fit.sum = sum(contacts.fit))
 
-ggplot(df.contpos1.sum, aes(log1p(contacts.sum), log1p(contacts.fit.sum))) +   
-  geom_errorbar(aes(ymin = log1p(contacts.fit.sum - sqrt(contacts.fit.sum / len_tcr)),
-                    ymax = log1p(contacts.fit.sum + sqrt(contacts.fit.sum / len_tcr)))) +
+ggplot(df.contpos1.sum, aes(contacts.sum, contacts.fit.sum)) +   
+  geom_errorbar(aes(ymin = contacts.fit.sum - sqrt(contacts.fit.sum / len_tcr),
+                    ymax = contacts.fit.sum + sqrt(contacts.fit.sum / len_tcr))) +
   geom_smooth(method="lm", color="black") + 
   geom_point(shape=21, size = 4, aes(fill = tcr_chain)) +
-  scale_y_continuous("Estimated value, log(1+x)") +
-  scale_x_continuous("Total number of CDR3 contacts, log(1+x)") +
+  scale_y_continuous("Estimated value") +
+  scale_x_continuous("Total number of CDR3 contacts") +
   scale_fill_brewer("TCR chain", palette = "Set1") +
   theme_bw()
 
-summary(lm(log1p(contacts.fit.sum) ~ log1p(contacts.sum), df.contpos1.sum))
-summary(aov(log1p(contacts.fit.sum) ~ log1p(contacts.sum), df.contpos1.sum))
+summary(lm(contacts.fit.sum ~ contacts.sum, df.contpos1.sum))
+summary(aov(contacts.fit.sum ~ contacts.sum, df.contpos1.sum))
 ```
 
 Now lets analyze the resulting coefficients for each amino acids. First, prepare coefficient table.
@@ -445,7 +452,8 @@ Now lets analyze the resulting coefficients for each amino acids. First, prepare
 ```{r}
 df.coef1 <- as.data.frame(summary(fit.c1)$coefficients)
 
-df.coef1$type <- ifelse(grepl("pos_norm", rownames(df.coef1)), "b", "a")
+df.coef1$type <- ifelse(grepl("pos_norm", rownames(df.coef1)), "b", 
+                        ifelse(grepl("aa_tcr", rownames(df.coef1)), "a", "c"))
 df.coef1$aa <- sapply(rownames(df.coef1), function(x) strsplit(x,"")[[1]][7])
 
 rownames(df.coef1) <- NULL
@@ -516,59 +524,148 @@ df.cor$pvalue <- p.adjust(df.cor$pvalue)
 print(df.cor)
 ```
 
-## Amino acid pairing preferences
+### Analyze TCRs with known antigen specificity using the model
+
+The following function is used to compute the number of contacts using the trained model:
 
 ```{r}
-df.contpos.2 <- ddply(subset(df.0, aa_tcr != "C"), 
-                           .(pdb_id, tcr_chain, pos_tcr, aa_tcr, pos_antigen, aa_antigen), summarize,
-              pos_norm_tcr = mean(2 * (pos_tcr - len_tcr / 2) / len_tcr) ^ 2,
-              pos_norm_ag = mean(2 * (pos_antigen - len_antigen) / 2 / len_antigen - 
-                                   get_ag_offset(tcr_chain))^2,
-              contacting = distance <= DIST_THRESHOLD)
-              
-fit.c2 <- glm(contacting ~ aa_tcr:aa_antigen + aa_tcr : aa_antigen : pos_norm_tcr : pos_norm_ag - 1, 
-              df.contpos.2, family=binomial())
+mdl.coef.df <- as.data.frame(summary(fit.c1)$coefficients)
+mdl.coef <- mdl.coef.df$Estimate
+names(mdl.coef) <- rownames(mdl.coef.df)
 
-summary(fit.c2)
+calc_contact_num <- function(aa_tcr, pos_tcr, len_tcr, tcr_chain) {
+  pos_norm <- calc_pos_norm(pos_tcr, len_tcr)
+  exp(mapply(function(x, y, z) ifelse(x == "C", -Inf, 
+                                           mdl.coef[paste("aa_tcr", x, sep = "")] + 
+                                           mdl.coef[paste("aa_tcr", x, ":pos_norm", sep = "")] * y
+           ), aa_tcr, pos_norm, len_tcr))
+}
+
+calc_contact_num_sum <- function(seq) {
+  aa_tcr <- strsplit(seq, "")[[1]]
+  len_tcr <- length(aa_tcr)
+  ifelse(len_tcr == 0, 0,
+         sum(calc_contact_num(aa_tcr, 1:len_tcr, len_tcr)))
+}
+
+#calc_contact_num_sum("CASSLAPGATNEKLFF")
 ```
+
+Load paired TCR alpha beta data for *RPRGEVRFL* epitope from **PMID:20139278**:
 
 ```{r}
-df.contpos.2$contacts.fit <- fitted.values(fit.c2)
+df.hsv2abpairs <- read.table("HSV-2_tcr_ab_pairs.txt", header = T, sep="\t", stringsAsFactors = F)
 
-ggplot(df.contpos.2, aes(x=contacts.fit, color=contacting)) + geom_density() + theme_bw()
+df.hsv2abpairs <- ddply(df.hsv2abpairs, .(cdr3.alpha, cdr3.beta), transform,
+                  len.alpha = nchar(cdr3.alpha),
+                  len.beta = nchar(cdr3.beta),
+                  contacts.alpha = calc_contact_num_sum(cdr3.alpha),
+                  contacts.beta = calc_contact_num_sum(cdr3.beta))
+
+ggplot(df.hsv2abpairs, aes(x=contacts.alpha, y=contacts.beta)) + 
+  geom_smooth(method="lm", color="black") + 
+  geom_errorbar(aes(ymin = contacts.beta - sqrt(contacts.beta / len.beta), 
+                    ymax = contacts.beta + sqrt(contacts.beta / len.beta))) +
+  geom_errorbarh(aes(xmin = contacts.alpha - sqrt(contacts.alpha / len.alpha), 
+                    xmax = contacts.alpha + sqrt(contacts.alpha / len.alpha))) +
+  geom_point(size=4, aes(fill=contacts.alpha-contacts.beta), shape=21) +
+  scale_fill_gradient2(guide = FALSE, low = "#a50026", mid = "#ffffbf", high = "#313695") + 
+  scale_x_continuous(name = "TCR alpha contacts est.") + 
+  scale_y_continuous(name = "TCR beta contacts est.") +
+  theme_bw()
+
+summary(lm(contacts.beta ~ contacts.alpha, df.hsv2abpairs))
+# normalized by length
+summary(lm(contacts.beta / len.beta ~ I(contacts.alpha / len.alpha), df.hsv2abpairs))
 ```
+
+SIV-specific TCRs from David Price et al. monkey study. Differences between CM9- and TL8-specific TCRs:
 
 ```{r}
-ma <- expand.grid(unique(aa_prop$aa), unique(aa_prop$aa))
-colnames(ma) <- c("aa_tcr", "aa_antigen")
+df.tcr_siv <- read.table("siv_tcrs.txt", header=T, stringsAsFactors = F)
 
-ma$coeff <- mapply(function(x,y) coefficients(fit.c2)[paste("aa_tcr",x,":","aa_antigen",y, sep="")], 
-                      ma$aa_tcr, ma$aa_antigen)
+df.tcr_siv <- ddply(df.tcr_siv, .(cdr3), transform,
+                  len = nchar(cdr3),
+                  contacts = calc_contact_num_sum(cdr3))
 
-ma$coeff <- ma$coeff - mean(ma$coeff, na.rm = T)
-ma$coeff <- ifelse(ma$coeff < -10, -10, ifelse(ma$coeff > 10, 10, ma$coeff))
+df.tcr_siv <- subset(df.tcr_siv, len >= 12 & len <= 18)
 
-ggplot(ma, aes(x=aa_tcr, y=aa_antigen, fill=coeff)) + geom_tile() +
-  scale_fill_gradient2("Coefficient", low = "#2166ac", mid="#f7f7f7", high="#b2182b", 
-                       midpoint = 0)
+ggplot(df.tcr_siv,
+       aes(x=len, y = contacts, color=antigen)) +
+  geom_smooth(method="lm") +
+  geom_boxplot(aes(group=interaction(len, antigen)), width=0.4) + 
+  scale_color_brewer(palette = "Set1") + 
+  scale_x_continuous("CDR3 length", breaks=12:18) + 
+  ylab("Estimated number of contacts") +
+  theme_bw()
+
+summary(aov(contacts ~ len + antigen, df.tcr_siv))
+
+df.pvals <- data.frame(len=12:18)
+df.pvals$pvals <- sapply(df.pvals$len, function(x) wilcox.test(contacts ~ antigen,
+                                                               subset(df.tcr_siv, len == x), exact=F)[[3]])
+print(df.pvals)
 ```
 
-Pairwise contact matrix:
+Comparing contact profiles for each CDR3 length between two epitopes:
+
+```{r}
+df.tcr_siv.flat <- data.frame(cdr3.beta = character(), aa_tcr = character(),
+                           pos_tcr = integer(), 
+                           antigen.species = character(), antigen.epitope = character())
+
+for (i in 1:nrow(df.tcr_siv)) {
+  .row <- df.tcr_siv[i, ]
+  .aa_tcr <- strsplit(.row$cdr3, split="")[[1]]
+  .df.ext <- data.frame(cdr3 = .row$cdr3, 
+                        aa_tcr = .aa_tcr, 
+                        pos_tcr = 1:length(.aa_tcr),
+                        len_tcr = length(.aa_tcr),
+                        antigen = .row$antigen)
+  df.tcr_siv.flat <- rbind(df.tcr_siv.flat, .df.ext)
+}
+
+df.tcr_siv.flat$contacts <- with(df.tcr_siv.flat, 
+                                 mapply(function(x,y,z) calc_contact_num(x,y,z), aa_tcr, pos_tcr, len_tcr))
+
+get_contacts <- function(pos, len) {
+  subset(df.tcr_siv.flat, len_tcr == len[1] & pos_tcr == pos[1] & antigen == "CTPYDINQM")$contacts
+}
+
+df.tcr_siv.plt <- ddply(subset(df.tcr_siv.flat, len_tcr %in% c(14:18)),
+                        .(pos_tcr, len_tcr, antigen), summarize,
+                        contacts.mean=median(contacts),
+                        pval=wilcox.test(contacts, get_contacts(pos_tcr, len_tcr))[[3]])
+
+df.tcr_siv.plt$ptxt <- p.annot(ifelse(is.nan(df.tcr_siv.plt$pval), 1, df.tcr_siv.plt$pval))
+
+ggplot(df.tcr_siv.plt, aes(x=pos_tcr, y=contacts.mean,
+                         color=antigen)) + 
+  geom_line() +
+  geom_point() +
+  geom_text(aes(y = contacts.mean+0.2, label = ptxt)) +
+  scale_color_brewer(palette = "Set1") + 
+  ylab("Contacts estimate") +
+  scale_x_continuous("", breaks=1:18) +
+  facet_grid(len_tcr~., scales="free_x") +
+  theme_bw()
+```
+
+## Application of findings to HIV escape epitope data
+
+### Pairwise contact preferences
 
 ```{r}
 df.cm <- ddply(df.0, .(aa_tcr, aa_antigen), summarize,
-               contacts_sum = sum(distance <= DIST_THRESHOLD))
-df.cm <- ddply(df.cm, .(aa_tcr), transform, contacts_sum_tcr = sum(contacts_sum))
-df.cm <- ddply(df.cm, .(aa_antigen), transform, contacts_sum_ag = sum(contacts_sum))
-df.cm$contacts_sum_norm <- with(df.cm, contacts_sum / contacts_sum_tcr / contacts_sum_ag)
-df.cm$contacts_sum_norm <- ifelse(is.na(df.cm$contacts_sum_norm), 0, df.cm$contacts_sum_norm)
+               contacts_sum = sum(distance <= DIST_THRESHOLD),
+               total = length(distance))
 
 contact_mat <- dcast(df.cm, aa_tcr ~ aa_antigen, value.var = "contacts_sum")
 contact_mat[is.na(contact_mat)] <- 0
 rownames(contact_mat) <- contact_mat[,1]
 contact_mat[,1] <- NULL
 contact_mat <- contact_mat[-2, ]
-contact_mat <- as.matrix(contact_mat
+contact_mat <- as.matrix(contact_mat)
 
 colgen <- function(aas, p, low, mid, hi) {
   panel <- colorpanel(100, low, mid, hi)
@@ -577,17 +674,41 @@ colgen <- function(aas, p, low, mid, hi) {
   return(panel[df.1$value])
 }
 
+cn <- colnames(contact_mat)
+colgen_cols <- ifelse(cn %in% c("A", "C", "I", "L", "M", "F", "W", "V"), "blue",
+                  ifelse(cn %in% c("G", "H", "P", "S", "T", "Y"), "red", "yellow"))    
+
 heatmap.2(contact_mat,
-          col=colorpanel(100, "#f0f0f0", "#7fcdbb", "#2c7fb8"),
-          distfun = function(x) as.dist(1-cor(t(x))/2),
-          hclustfun = function(d) hclust(d, method="ward"),
-          #ColSideColors = colgen(colnames(mat.cm), "volume", "white", "grey", "black"),
+          col=colorpanel(100, "white", "#74a9cf", "#045a8d"),
+          #distfun = function(x) as.dist(1-cor(t(x))/2),
+          #hclustfun = function(d) hclust(d, method="ward"),
+          #ColSideColors = colgen_cols,
+          #RowSideColors = colgen(rownames(mat.cm), "core", "white", "grey", "black"),
           density.info = "none", trace="none")
 ```
 
-## Application of findings to HIV escape epitope data
+```{r}
+calc_dist_1 <- function(x, y) cor(contact_mat[,x], contact_mat[,y])
 
-## Application of findings to HIV escape epitope data
+df.ag.sim <- expand.grid(colnames(contact_mat), colnames(contact_mat))
+
+df.ag.sim$r <- with(df.ag.sim, mapply(function(x,y) calc_dist_1(x, y), Var1, Var2))
+
+mat.ag.sim <- dcast(df.ag.sim, Var1~Var2)
+rownames(mat.ag.sim) <- mat.ag.sim[,1]
+mat.ag.sim[,1] <- NULL
+mat.ag.sim <- as.matrix(mat.ag.sim)
+
+heatmap.2(mat.ag.sim,
+          col=colorpanel(100, "#ffffb2", "#fd8d3c", "#bd0026"),
+         # distfun = function(x) as.dist(1-cor(t(x))/2),
+         # hclustfun = function(d) hclust(d, method="ward"),
+         # ColSideColors = colgen_cols,
+          #RowSideColors = colgen(rownames(mat.cm), "hydrop", "white", "grey", "black"),
+          density.info = "none", trace="none")
+```
+
+### Analyzis of NIAID HIV db
 
 Finally, we have applied our findings to study escape epitope variants from [NIAID HIV databases](http://www.hiv.lanl.gov/) database. The database was filtered to retain only variants with a single amino acid substitution. Escape variants were selected according to **E** (documented escape) and **NSF** (non-susceptible form) flags, and were further partitioned into three groups:
 
@@ -629,10 +750,7 @@ df.epi <- data.frame(seq = df.epi$Epitope,
                                    function(x) len(x))
                      )
 
-df.epi <- unique(df.epi)
-df.epi <- subset(df.epi, elen %in% c(8, 9, 10, 11))
-
-df.epi$pos_adj <- apply(df.epi, 1, function(x) as.numeric(x[4])-(as.numeric(x[6]) / 2 + 1))
+df.epi$pos_adj <- apply(df.epi, 1, function(x) as.numeric(x[4])-as.numeric(x[6]) / 2)
 
 summary(df.epi)
 ```
@@ -641,30 +759,46 @@ As expected, **tcr**-mediate escape mutations are clustered in the central part 
 
 ```{r}
 ggplot(df.epi, aes(x=pos_adj, fill=type)) +
+  annotate("rect", xmin=-Inf, xmax=-1, ymin=0, ymax=Inf, fill="grey") +
+  annotate("rect", xmin=3, xmax=Inf, ymin=0, ymax=Inf, fill="grey") +
   geom_density(alpha=0.5) + 
+  annotate("text", x=-4, y=0.25, label = "hla(?)") +
+  annotate("text", x=-0, y=0.25, label = "tcr(?)") +
+  annotate("text", x=4, y=0.25, label = "hla(?)") +
   xlab("Position, relative to epitope center") +
-  ylab("Variant density") +
-  scale_fill_brewer(name = "Variant type", palette = "Set1") +
-  scale_x_continuous(limits=c(-6,6)) + theme_bw()
+  ylab("") +
+  scale_fill_brewer(name = "Escape route", palette = "Set1") +
+  scale_x_continuous(limits=c(-6,6), expand=c(0,0)) + 
+  scale_y_continuous(limits=c(0,0.26), expand=c(0,0)) +
+  theme_bw()
 ```
 
 Next, we have tested the hypothesis that **tcr**-mediated escape variants are biased in the direction of mutations that substantially change TCR recognition profile (*TRP*, i.e. a column from the contact amino acid matrix described above). We have therefore computed correlation coefficients between *TRPs* of original and substituted amino acids and compared them between **hla**, **tcr** and **other** mutation groups. We have also taken an advantage of positioning data and partitioned the **other** group into **other.tcr** and **other.hla** based on whether the variant was in *[-2, 2]* region in respect to antigen center or not.
 
 ```{r}
-calc_dist <- function(row) cor(contact_mat[,row[2]], contact_mat[,row[3]])
+calc_dist_1 <- function(x , y) cor(contact_mat[,x], contact_mat[,y])
 
-df.epi$type2 <- as.factor(apply(df.epi, 1, function(x) ifelse(x[5] == "unknown", 
-                                                  ifelse(abs(as.numeric(x[7])) <= 2, "likely-tcr", "likely-hla"),
-                                                  x[5])))
+mean_dist <- median(mapply(function(x,y) ifelse(x==y, NA, calc_dist_1(x,y)), 
+                         as.character(df.epi$aa_from), 
+                         as.character(df.epi$aa_to)), na.rm=T)
 
-summary(df.epi)
+calc_dist <- function(row) calc_dist_1(row[2], row[3]) - mean_dist
+
+df.epi$type2 <- factor(apply(df.epi, 1, function(x) ifelse(x[5] == "unknown", 
+                                                  ifelse(as.numeric(x[7]) >= -1 & as.numeric(x[7]) <= 3, 
+                                                         "tcr(?)", "hla(?)"),
+                                                  x[5])), levels=c("hla","hla(?)","tcr(?)","tcr"))
 
 df.epi$dist <- apply(df.epi, 1, calc_dist)
 
-ggplot(df.epi, aes(x = type2, fill=type2, group=type2, y=dist)) +
-  geom_boxplot() + xlab("Variant type") + 
-  ylab("Correlation of amino acid contact profiles") +
-  scale_fill_brewer(guide=F, palette = "Set1") +
+ggplot(df.epi, aes(x = type2, group=type2, y=dist)) +
+  geom_violin() + 
+  geom_boxplot(aes(fill=type2), width=0.3) + 
+  geom_hline(yintercept = 0, linetype="dashed") +
+  xlab("Escape route") + 
+  ylab("Similarity of CDR3 contact profiles") +
+  scale_fill_brewer(guide=F, palette = "Set1") + 
+  scale_y_continuous(limits=c(-0.75,0.25)) +
   theme_bw()
 ```
 
@@ -672,7 +806,7 @@ There was indeed a clear trend showing that **hla**-mediated escape mutations re
 
 ```{r}
 kruskal.test(dist ~ type2, df.epi)
-wilcox.test(subset(df.epi, type2 == "likely-hla")$dist, subset(df.epi, type2 == "likely-tcr")$dist)
+wilcox.test(subset(df.epi, type2 == "hla(?)")$dist, subset(df.epi, type2 == "tcr(?)")$dist)
 wilcox.test(subset(df.epi, type2 == "hla")$dist, subset(df.epi, type2 == "tcr")$dist)
 ```
 
