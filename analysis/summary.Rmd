@@ -160,6 +160,10 @@ a <- aov(csum~tcr_region + tcr_chain + mhc_type, df.r)
 summary(a)
 TukeyHSD(a, "mhc_type")
 TukeyHSD(a, "tcr_region")
+
+#check for CDR3 only
+a <- aov(csum~tcr_chain + mhc_type, subset(df.r, tcr_region == "CDR3"))
+TukeyHSD(a, "mhc_type")
 ```
 
 ### Contact residues are tightly clustered on TCR and antigen length
@@ -554,7 +558,7 @@ calc_contact_num_sum <- function(seq) {
 Load paired TCR alpha beta data for *RPRGEVRFL* epitope from **PMID:20139278**:
 
 ```{r}
-df.hsv2abpairs <- read.table("HSV-2_tcr_ab_pairs.txt", header = T, sep="\t", stringsAsFactors = F)
+df.hsv2abpairs <- read.table("datasets/HSV-2_tcr_ab_pairs.txt", header = T, sep="\t", stringsAsFactors = F)
 
 df.hsv2abpairs <- ddply(df.hsv2abpairs, .(cdr3.alpha, cdr3.beta), transform,
                   len.alpha = nchar(cdr3.alpha),
@@ -582,7 +586,7 @@ summary(lm(contacts.beta / len.beta ~ I(contacts.alpha / len.alpha), df.hsv2abpa
 SIV-specific TCRs from David Price et al. monkey study. Differences between CM9- and TL8-specific TCRs:
 
 ```{r}
-df.tcr_siv <- read.table("siv_tcrs.txt", header=T, stringsAsFactors = F)
+df.tcr_siv <- read.table("datasets/siv_tcrs.txt", header=T, stringsAsFactors = F)
 
 df.tcr_siv <- ddply(df.tcr_siv, .(cdr3), transform,
                   len = nchar(cdr3),
@@ -649,6 +653,77 @@ ggplot(df.tcr_siv.plt, aes(x=pos_tcr, y=contacts.mean,
   scale_x_continuous("", breaks=1:18) +
   facet_grid(len_tcr~., scales="free_x") +
   theme_bw()
+```
+
+### Analysis of T-cell subsets
+
+
+CD4+CD25- and CD4+CD25+ subset with effector T-reg phenotype from prof. Gaston:
+
+```{r}
+read_annot_table <- function(.path, .donor,.subset,.sample) {
+  fname <- paste(.path, paste(.donor,.subset,.sample,"txt",sep="."), sep="")
+  if(file.exists(fname)) {
+    .df <- read.table(fname, header=T, sep="\t", fill=T, stringsAsFactors = F)
+    return (with(.df, data.frame(cdr3contact= aaprop.cdr3contact, weight=freq,
+             donor = .donor, subset = .subset, sample = .sample)))
+  }
+}
+
+df.treg <- data.frame(cdr3contact = numeric(), donor=factor(), subset = factor(), sample = integer())
+
+for (donor in c("steve", "tony", "kevin")) {
+  for (s in c("G2", "Tresp")) {
+    for (replica in 1:3) {
+      df.treg <- rbind(df.treg, read_annot_table("datasets/treg/", donor, s, replica))
+    }
+  }
+}
+
+ggplot(df.treg, aes(x=cdr3contact, color=subset, linetype=donor)) +
+  stat_ecdf(geom="line") + 
+  scale_color_manual(values = c("red", "black")) +
+  scale_x_continuous(limits=c(10, 20), expand=c(0,0)) + 
+  scale_y_continuous(expand=c(0,0))+
+  theme_bw()
+
+ks.test(subset(df.treg, donor == "steve" & subset=="Tresp")$cdr3contact,
+        subset(df.treg, donor == "steve" & subset=="G2")$cdr3contact)
+ks.test(subset(df.treg, donor == "tony" & subset=="Tresp")$cdr3contact,
+        subset(df.treg, donor == "tony" & subset=="G2")$cdr3contact)
+ks.test(subset(df.treg, donor == "kevin" & subset=="Tresp")$cdr3contact,
+        subset(df.treg, donor == "kevin" & subset=="G2")$cdr3contact)
+```
+
+Memory T-cells from from prof. Goronzy aging study:
+
+```{r}
+df.mem <- data.frame(cdr3contact = numeric(), donor=factor(), subset = factor(), sample = integer())
+
+for (donor in c("Donor7", "Donor9")) {
+  for (s in c("M", "CM", "EM", "TEM")) {
+    for (replica in 1:5) {
+      df.mem <- rbind(df.mem, read_annot_table("datasets/memory/", donor, s, replica))
+    }
+  }
+}
+
+ggplot(df.mem, aes(x=cdr3contact, color=subset, linetype=subset)) +
+  stat_ecdf(geom="line") + 
+  scale_color_manual(values=c("black", "blue", "orange", "red")) +
+  scale_linetype_manual(values = c("dashed", "dashed", "dashed", "solid")) +
+  scale_x_continuous(limits=c(10, 20), expand=c(0,0)) + 
+  scale_y_continuous(expand=c(0,0))+
+  facet_grid(donor~.) +
+  theme_bw()
+
+for (d in c("Donor7", "Donor9")) {
+  for (s in c("M", "CM", "EM")) {
+    print(paste(d,s))
+    print(ks.test(subset(df.mem, donor == d & subset==s)$cdr3contact,
+            subset(df.mem, donor == d & subset=="TEM")$cdr3contact))
+  }
+}
 ```
 
 ## Application of findings to HIV escape epitope data
@@ -719,7 +794,7 @@ Finally, we have applied our findings to study escape epitope variants from [NIA
 As only 8,9,10 and 11-mer epitopes had reported **tcr** escape variants, we've limited our analysis to this group.
                 
 ```{r}
-df.epi <- read.csv("ctl_variant.csv", header=T)
+df.epi <- read.csv("datasets/ctl_variant.csv", header=T)
 
 df.epi <- df.epi[grep("^[ACDEFGHIKLMNPQRSTVWY]\\d+[ACDEFGHIKLMNPQRSTVWY]$", df.epi$Mutation_epitope),]
 df.epi <- df.epi[grep("^[ACDEFGHIKLMNPQRSTVWY]+$", df.epi$Epitope),]
