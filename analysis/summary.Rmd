@@ -662,7 +662,7 @@ CD4+CD25- and CD4+CD25+ subset with effector T-reg phenotype from prof. Gaston:
 
 ```{r}
 read_annot_table <- function(.path, .donor,.subset,.sample) {
-  fname <- paste(.path, paste(.donor,.subset,.sample,"txt",sep="."), sep="")
+  fname <- paste(.path, paste(.donor,.subset,.sample,"txt","zip",sep="."), sep="")
   if(file.exists(fname)) {
     .df <- read.table(fname, header=T, sep="\t", fill=T, stringsAsFactors = F)
     return (with(.df, data.frame(cdr3contact= aaprop.cdr3contact, weight=freq,
@@ -698,15 +698,20 @@ ks.test(subset(df.treg, donor == "kevin" & subset=="Tresp")$cdr3contact,
 Memory T-cells from from prof. Goronzy aging study:
 
 ```{r}
-df.mem <- data.frame(cdr3contact = numeric(), donor=factor(), subset = factor(), sample = integer())
+## As the data comes from dbGap we better not store CDR3 sequences of memory cells :)
+#df.mem <- data.frame(cdr3contact = numeric(), donor=factor(), subset = factor(), sample = integer())
+#
+#for (donor in c("Donor7", "Donor9")) {
+#  for (s in c("M", "CM", "EM", "TEM")) {
+#    for (replica in 1:5) {
+#      df.mem <- rbind(df.mem, read_annot_table("datasets/memory/", donor, s, replica))
+#    }
+#  }
+#}
+#
+#write.table(df.mem, file="datasets/memory/summary_table.txt", quote=F,sep="\t", row.names = F)
 
-for (donor in c("Donor7", "Donor9")) {
-  for (s in c("M", "CM", "EM", "TEM")) {
-    for (replica in 1:5) {
-      df.mem <- rbind(df.mem, read_annot_table("datasets/memory/", donor, s, replica))
-    }
-  }
-}
+df.mem <- read.table("datasets/memory/summary_table.txt.zip", header=T)
 
 ggplot(df.mem, aes(x=cdr3contact, color=subset, linetype=subset)) +
   stat_ecdf(geom="line") + 
