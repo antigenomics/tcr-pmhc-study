@@ -19,17 +19,29 @@ library(bnlearn)
 
 
 df <- read.table("structure.txt", header = T, sep="\t") %>%
-  filter(mhc_type == "MHCI") %>%
   mutate(tcr_chain = as.factor(substr(as.character(tcr_v_allele), 1, 3)),
          pos_tcr = as.numeric(pos_tcr),
          len_tcr = as.numeric(len_tcr),
          pos_antigen = as.numeric(pos_antigen),
          len_antigen = as.numeric(len_antigen)) %>%
-  select(tcr_region, tcr_chain, pos_tcr, len_tcr, aa_tcr, pos_antigen, len_antigen, aa_antigen, energy) %>%
-  mutate(contact = as.factor(energy < 0),
-         pos_rel_tcr = cut(pos_tcr / (len_tcr - 1), 10),
-         pos_rel_antigen = cut(pos_antigen / (len_antigen - 1), 10)) %>%
-  select(tcr_region, tcr_chain, pos_rel_tcr, aa_tcr, pos_rel_antigen, aa_antigen, contact)
+  select(pdb_id, tcr_region, tcr_chain, pos_tcr, len_tcr, aa_tcr, pos_antigen, len_antigen, aa_antigen, mhc_type, distance) %>%
+  mutate(contact = as.factor(distance <= 6),
+         pos_rel_tcr = cut(pos_tcr / (len_tcr - 1), 5),
+         pos_rel_antigen = cut(pos_antigen / (len_antigen - 1), 5)) 
+
+# Filter no contact complexes
+
+df.noc <- df %>%
+  group_by(pdb_id, tcr_chain) %>%
+  summarise(contacts = sum(as.logical(contact))) %>%
+  filter(contacts < 3)
+
+df <- df %>%
+  filter(!(pdb_id %in% df.noc$pdb_id))
+
+pdb_id <- df$pdb_id
+
+df <- df %>% select(tcr_region, tcr_chain, pos_rel_tcr, aa_tcr, pos_rel_antigen, aa_antigen, mhc_type, contact)
 
 df$contact[is.na(df$contact)] <- "FALSE"
 
@@ -50,10 +62,11 @@ graphviz.plot(tb)
 emp_net <- model2network(paste(
   "[contact]",
   "[tcr_chain|contact]",
-  "[tcr_region|contact]",
-  "[pos_rel_antigen|pos_rel_tcr:tcr_chain:contact]", 
+  "[mhc_type|contact]",
+  "[tcr_region|tcr_chain:contact]",
+  "[pos_rel_antigen|pos_rel_tcr:tcr_region:mhc_type:tcr_chain:contact]", 
   "[aa_antigen|aa_tcr:contact]", 
-  "[pos_rel_tcr|tcr_region:contact]", 
+  "[pos_rel_tcr|contact]", 
   "[aa_tcr|contact]", 
   sep =""))
 
@@ -73,26 +86,28 @@ res <- predict(fit, node="contact", method="bayes-lw", data=df, prob=T)
 
 p <- attributes(res)$prob
 
-rocobj <- plot.roc(df[,"contact"], p[1,], ci=T)
+rocobj <- plot.roc(df[,"contact"], p[2,], ci=T)
 
 rocobj
 ```
 
 ```{r}
-# df.cplx <- df %>% select(pdb_id, tcr_chain, contact)
-# df.cplx$p <- p[1,]
-# 
-# df.cplx <- df.cplx %>%
-#   group_by(pdb_id, tcr_chain) %>%
-#   summarise(contacts = sum(as.logical(contact)),
-#             contacts.pred = sum(p))
-# 
-# ggplot(df.cplx, aes(contacts, contacts.pred)) + 
-#   geom_point(shape=21) +
-#   geom_abline(slope = 1, intercept = 0) +
-#   scale_x_continuous(limits=c(0,200)) +
-#   scale_y_continuous(limits=c(0,200)) +
-#   theme_bw()
+df.cplx <- data.frame(pdb_id = pdb_id)
+df.cplx$tcr_chain <- df$tcr_chain
+df.cplx$contact <- as.logical(df$contact)
+df.cplx$p <- p[2,]
+
+df.cplx <- df.cplx %>%
+   group_by(pdb_id, tcr_chain) %>%
+   summarise(contacts = sum(as.logical(contact)),
+             contacts.pred = sum(p))
+ 
+ggplot(df.cplx, aes(contacts, contacts.pred)) + 
+   geom_point(shape=21) +
+   geom_abline(slope = 1, intercept = 0, color = "red", linetype="dashed") +
+   scale_x_continuous(limits=c(0, 50)) +
+   scale_y_continuous(limits=c(0, 50)) +
+   theme_bw()
 ```
 
 ```{r}
@@ -130,13 +145,21 @@ aa_pair_mat$aa_tcr <- NULL
 aa_pair_mat <- as.matrix(aa_pair_mat)
 aa_pair_mat[is.na(aa_pair_mat)] <- 0
 
-strong_aa <- c("F", "I", "L", "M", "V", "W", "Y", "C")
-strong_col <- ifelse(rownames(aa_pair_mat) %in% strong_aa, "blue", "grey")
-names(strong_col) <- rownames(aa_pair_mat)
+df.hydro <- data.frame(
+  aa = strsplit("I V L F C M A W G T S Y P H N D Q E K R", " ")[[1]],
+  hydrop = strsplit("4.5 4.2 3.8 2.8 2.5 1.9 1.8 -0.9 -0.4 -0.7 -0.8 -1.3 -1.6 -3.2 -3.5 -3.5 -3.5 -3.5 -3.9 -4.5", " ")[[1]]
+)
+
+df.hydro <- df.hydro %>%
+  mutate(hydrop = as.numeric(as.character(hydrop))) %>%
+  arrange(hydrop)
+
+df.hydro$color <- colorRampPalette(rev(brewer.pal(11, 'PRGn')))(20)
+
+aa_colors <- df.hydro$color
+names(aa_colors) <- df.hydro$aa
 
 js_calc <- function(p, q) {
-  p<-p/sum(p)
-  q<-q/sum(q)
   m <- 0.5 * (p + q)
   0.5 * (sum(p * log(p / m)) + sum(q * log(q / m)))
 }
@@ -151,13 +174,13 @@ js_dist <- function(x) {
 }
 
 heatmap.2(aa_pair_mat, 
-          hclustfun = function(x) hclust(x, method = "ward"),
-          #distfun = function(x) js_dist(x),
-          RowSideColors = strong_col, 
-          #ColSideColors = strong_col, 
+          #hclustfun = function(x) hclust(x, method = "ward"),
+          distfun = function(x) js_dist(x),
+          RowSideColors = aa_colors, 
+          ColSideColors = aa_colors, 
           trace = "none",
-          #breaks = seq(-4, 0, length.out = 101),
-          col=colorpanel(100, "#f7f7f7", "#b2182b", "black"))
+          #breaks = seq(0, 0.2, length.out = 101),
+          col=colorRampPalette(rev(brewer.pal(11, 'RdBu')))(100))
 ```
 
 ```{r}
@@ -177,13 +200,12 @@ colnames(df.1) <- c("aa", "P_TCR")
 colnames(df.2) <- c("aa", "P_AG")
 
 df.1 <- merge(df.1, df.2)
+df.1 <- merge(df.1, df.hydro)
 
-df.1$strong <- ifelse(df.1$aa %in% strong_aa, T, F)
-
-ggplot(df.1, aes(x=P_TCR, y=P_AG, color=strong)) +
-  geom_point() +
-  geom_text(aes(label=aa), vjust=0, hjust=-0.2) +
-  scale_color_brewer(palette = "Set1") + 
+ggplot(df.1, aes(x=P_TCR, y=P_AG, fill=hydrop)) +
+  geom_label(aes(label=aa)) +
+  scale_fill_gradientn(colors = colorRampPalette(rev(brewer.pal(9, 'PRGn')))(20)) +
+  #scale_color_gradientn(colors = df.1$color) + 
   theme_bw()
 ```
 
@@ -192,13 +214,26 @@ rf <- colorRampPalette(rev(brewer.pal(11, 'Spectral')))
 r <- rf(32)
 
 df.1 <- prob.tmp %>%
-  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, contact) %>%
+  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type, contact) %>%
   summarise(P = sum(P)) %>%
-  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region) %>%
+  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type) %>%
   summarise(P = P[which(contact)] / sum(P)) 
 
 ggplot(df.1, aes(x=pos_rel_antigen, y = pos_rel_tcr, fill=P)) +
   geom_tile() + 
   scale_fill_gradientn(colors=r) +
-  facet_grid(tcr_region~tcr_chain)
+  facet_grid(tcr_region~mhc_type+tcr_chain)
+```
+
+```{r}
+df.1 <- prob.tmp %>%
+  group_by(aa_tcr, pos_rel_tcr, tcr_chain, tcr_region, contact) %>%
+  summarise(P = sum(P)) %>%
+  group_by(aa_tcr, pos_rel_tcr, tcr_chain, tcr_region) %>%
+  summarise(P = P[which(contact)] / sum(P)) 
+
+ggplot(df.1, aes(x=pos_rel_tcr, y = aa_tcr, fill=P)) +
+  geom_tile() + 
+  scale_fill_gradientn(colors=r) +
+  facet_grid(tcr_chain~tcr_region)
 ```
