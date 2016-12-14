@@ -18,18 +18,18 @@
 import org.biojava.nbio.structure.rcsb.RCSBDescriptionFactory
 import org.biojava.nbio.structure.rcsb.RCSBPolymer
 
-def allowedHostIds = [(9606): "HomoSapiens", (10090): "MusMusculus"]
+def allowedHostIds = [(9606): "HomoSapiens", (10090): "MusMusculus"]//, (9544): "MacacaMulatta", (10116): "RattusNorvegicus"]
 
-def mhcKeywords = ["hla", "mhc", "histocompatibility", "beta-2-microglobulin", "beta-2 microglobulin", "b2m"],
-    tcrKeywords = ["tcr", "tra", "trav", "trb", "trbv", "t-cell receptor", "t cell receptor", "alpha chain", "beta chain"]
+def mhcKeywords = ["hla", "mhc", "histocompatibility", "beta-2-microglobulin", "beta-2 microglobulin", "beta2 microglobulin", "b2m"],
+    tcrKeywords = ["tcr", "tra", "trav", "trac", "trb", "trbv", "trbc", "t-cell receptor", "t cell receptor", "alpha chain", "beta chain", "immunoglobulin"]
 
 def goodPdbs = 0
 
-def pdbIds = new File(args[0]).readLines()
-
-println "pdb_id\tpdb_chain_id\tspecies\ttype\tdescr"
+def pdbIds = new File(args[0]).readLines().unique()
 
 new File(args[1]).withPrintWriter { pw ->
+    pw.println "pdb_id\tpdb_chain_id\tspecies\ttype\tdescr"
+
     pdbIds.each { pdbId ->
         pdbId = pdbId.toLowerCase()
 
@@ -39,7 +39,7 @@ new File(args[1]).withPrintWriter { pw ->
 
         // Select host and non-host polymers
 
-        def polymers = descr.polymers.findAll { it.type.toLowerCase() == "protein" }
+        def polymers = descr == null ? [] : descr.polymers.findAll { it.type.toLowerCase() == "protein" }
 
         def hostPolymers = [], nonHostPolymers = []
 
@@ -129,6 +129,8 @@ new File(args[1]).withPrintWriter { pw ->
 
         if (!problems) {
             goodPdbs++
+
+            println "!!! Good PDB record $pdbId"
 
             mhcChains.each {
                 printPolymers(it, "mhc")

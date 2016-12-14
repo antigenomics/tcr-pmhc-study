@@ -1,10 +1,17 @@
 #!/bin/bash
 
-ANNOTATION="groovy annotation/src"
-$ANNOTATION/AnnotatePdb.groovy result/extended_pdb_ids.txt result/annotations.txt
-$ANNOTATION/MapMhc.groovy result/annotations.txt result/mhc.annotaitons.txt
-$ANNOTATION/MapTcr.groovy result/annotations.txt result/tcr.annotaitons.txt
-$ANNOTATION/CombineAnnotation.groovy result/annotations.txt result/mhc.annotations.txt result/final.annotations.txt
+ANNOTATION="groovy src"
 
-STRUCTURE="python structure/src"
-$STRUCTURE/structure.py -i result/final.annotations.txt -o result/structure.txt
+cd annotation/src/
+
+#rm -r ../tmp
+mkdir ../tmp
+
+#groovy AnnotatePdb.groovy ../../input/extended_pdb_ids.txt ../../result/annotations.txt 2>&1 | tee ../tmp/annotate_pdb.log
+#groovy MapMhc.groovy ../../result/annotations.txt ../../result/mhc.annotations.txt 2>&1 | tee ../tmp/mapmhc.log
+groovy MapTcr.groovy ../../result/annotations.txt ../../result/tcr.annotations.txt 2>&1 | tee ../tmp/maptcr.log
+groovy CombineAnnotation.groovy ../../result/annotations.txt ../../result/mhc.annotations.txt ../../result/tcr.annotations.txt ../../result/final.annotations.txt 2>&1 | tee ../tmp/combine.log
+cd ..
+
+#STRUCTURE="python structure/src"
+#$STRUCTURE/structure.py -i result/final.annotations.txt -o result/structure.txt

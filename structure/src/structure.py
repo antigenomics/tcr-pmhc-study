@@ -23,7 +23,7 @@ parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
 parser.add_argument("-m", nargs=1, type=bool, default=False,
                     help="perform an additional minimization round prior to estimating energies")
 parser.add_argument("-e", nargs=1, type=str, default="total",
-                    help="energy term to compute (Coul/LJ-SR/LR or total)")
+                    help="energy term to compute (Coul/LJ-SR/LR, total or none)")
 
 args = parser.parse_args()
 
@@ -88,6 +88,7 @@ for pdb_id, pdb_group in bypdb:
     # Fix PDB structure and make GROMACS files, we'll use it later
     print(pdb_id, "-- fixing PDB")
     pdb_file = fix_pdb(pdb_id, pdb_file, pdb_group)
+    
     print(pdb_id, "-- making topology")
     prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path)
     if minimized:

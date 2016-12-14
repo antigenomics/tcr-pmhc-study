@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 
+package annotation
+
 import org.biojava.nbio.structure.GroupType
 import org.biojava.nbio.structure.StructureIO
 
@@ -52,34 +54,29 @@ def getSequence = { String pdbId, String chainId ->
 
 def sequenceMap = new HashMap<String, String>()
 
-println "Extracting amino acid sequences of 'tcr' polymers"
+System.err.println "Extracting amino acid sequences of 'tcr' polymers"
 
-input = new File("../tmp/tcr.fasta")
-if (!input.exists()) { input.mkdirs() }
+new File("../tmp/tcr.fasta").withPrintWriter { pw ->
+    new File(args[0]).eachLine { it, ind ->
+        if (ind == 1) return
+        def splitLine = it.split("\t")
 
-input.withPrintWriter { pw ->
-	new File(args[0]).eachLine { it, ind ->
-		if (ind == 1) return
-		def splitLine = it.split("\t")
-		if (splitLine[3] == "tcr") {
-		    def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
-		    def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
-		    pw.println(">$id")
-		    pw.println(seq)
-		    sequenceMap.put(id.toString(), seq)
-		}
+        if (splitLine[3] == "tcr") {
+            println splitLine
+            def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
+            species = species.replaceAll(" +", "_")
+
+            def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
+            pw.println(">$id")
+            pw.println(seq)
+            sequenceMap.put(id.toString(), seq)
+        }
     }
 }
 
-/*def key = ""
-input.eachLine { line ->
-    (line[0] == '>') ? key = line[1..-1] : sequenceMap.put(key.toString(), line)
-}*/
+System.err.println "IG-BLAST'ing"
 
-println "IG-BLAST'ing"
-
-def proc = ("igblastp -germline_db_V ../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query " +
-        "../tmp/tcr.fasta -out ../tmp/tcr.blast").execute()
+def proc = ("igblastp -germline_db_V ../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query ../tmp/tcr.fasta -out ../tmp/tcr.blast").execute()
 
 proc.waitFor()
 
@@ -94,8 +91,6 @@ def vPattern = Pattern.compile(
         //                      query subject     identity      length
         /# Hit table(?:.+\n)+V\t(\S+)\t(\S+)\t(\d+(?:\.\d+)?)\t([0-9]+)\t.+/
 )
-// new line                                 query
-def idPattern = Pattern.compile(/# Query:\s+(.+\n)/)
 
 def groomMatch = { Matcher matcher ->
     matcher.size() > 0 ? matcher[0][1..-1] : null//[]
@@ -103,11 +98,6 @@ def groomMatch = { Matcher matcher ->
 
 def minIdent = 0.8, minAlignedBases = 30
 def mapped = 0
-
-// new line
-def fullSeqs = new File("../tmp/for_J_reg_annot.txt")
-// new line
-fullSeqs.withPrintWriter { pw -> pw.print("") }
 
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tv_match\tv_allele\tregion\tstart\tend\tseq")
@@ -117,12 +107,11 @@ new File(args[1]).withPrintWriter { pw ->
     def processChunk = {
         if (chunk.length() > 0) {
             def vHit = groomMatch(chunk =~ vPattern)
-                /* new                                     */
-            def id = groomMatch(chunk =~ idPattern)[0][0..-2], match = vHit[1], identity = vHit[2].toDouble() / 100,
+
+            def id = vHit[0].toString(), match = vHit[1], identity = vHit[2].toDouble() / 100,
                 seq = sequenceMap[id],
                 span = vHit[3].toInteger()
-            
-            
+
             if (identity >= minIdent && span >= minAlignedBases) {
                 patternsByRegion.each {
                     def regionHit = groomMatch(chunk =~ it.value)
@@ -133,11 +122,10 @@ new File(args[1]).withPrintWriter { pw ->
                         if (it.key.toString() == "CDR3") {
                             start--
                             def cdr3match = seq.substring(start) =~ /[FW]G.G/
-                            if (cdr3match.find()) {
+                            if (cdr3match.find()){// ||
+                                //(cdr3match = seq.substring(start) =~ /[FW]G.$/).find() ||
+                                //(cdr3match = seq.substring(start) =~ /[FW]G$/).find()) {
                                 end = start + cdr3match.start() + 1
-                                //new line                        
-                                fullSeqs.append(">"+[id.split("\\|")[0, 2], match.split("\\|")[1][0..2]].flatten()[0,2,1].join("|")+
-                                    "\n"+seq.substring(start)+"\n")
                             }
                         } else {
                             end = regionHit[1].toInteger()
@@ -147,12 +135,14 @@ new File(args[1]).withPrintWriter { pw ->
                             pw.println([id.split("\\|"), match, match.split("\\|")[1], it.key,
                                         start, end, seq.substring(start, end)].flatten().join("\t"))
                         }
+
+                        // TODO: no CDR3 1ymm 3vxu 3w0w
                     }
                 }
 
                 mapped++
             } else {
-                System.err.println "Failed to map $id. Best match to $match with $identity identity and $span span\n"
+                System.err.println "Unmapped\n$identity\t$span" + chunk + "\n"
             }
         }
     }
@@ -169,4 +159,4 @@ new File(args[1]).withPrintWriter { pw ->
     processChunk()
 }
 
-println "Finished, mapped $mapped polymers of ${sequenceMap.size()} total"
+System.err.println "Finished, mapped $mapped polymers of ${sequenceMap.size()} total"

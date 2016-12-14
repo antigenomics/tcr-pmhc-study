@@ -57,12 +57,14 @@ new File("../tmp/mhc.fasta").withPrintWriter { pw ->
         def splitLine = it.split("\t")
 
         if (splitLine[3] == "mhc") {
+            println splitLine
             def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
+            species = species.replaceAll(" +", "_")
 
-            def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
+            def id = "$pdbId|$chainId|$species".toString(), seq = getSequence(pdbId, chainId)
             pw.println(">$id")
             pw.println(seq)
-            seqLengths.put(id.toString(), seq.length())
+            seqLengths.put(id, seq.length())
         }
     }
 }
@@ -88,7 +90,12 @@ def mapped = 0
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tmhc_match")
     new File("../tmp/mhc.blast").splitEachLine("[\t ]+") {
-        def id = it[0], match = it[1], ident = it[2].toDouble() / 100, span = it[3].toDouble() / seqLengths[id]
+        def id = it[0], match = it[1], ident = it[2].toDouble() / 100, span = it[3].toDouble()
+        if ([id, match, ident, seqLengths[id]].any { x -> x == null }) {
+            System.err.println "Bad output $it"
+            System.exit(1)
+        }
+        span /= (double) seqLengths[id]
 
         if (ident >= minIdent && span >= minQuerySpan) {
             pw.println([id.split("\\|"), match].flatten().join("\t"))

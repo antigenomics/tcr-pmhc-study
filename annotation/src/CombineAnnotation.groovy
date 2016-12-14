@@ -24,10 +24,20 @@ class Entity {
 
 class Mhc extends Entity {
     String allele
+    
+    @Override
+    String toString() {
+       allele.toString()
+    }
 }
 
 class Antigen extends Entity {
     String seq
+
+    @Override
+    String toString() {
+       seq.toString()
+    }
 }
 
 class Region {
@@ -40,6 +50,11 @@ class Region {
         this.start = start
         this.end = end
     }
+
+    @Override
+    String toString() {
+       [type, seq, start, end].toString()
+    }
 }
 
 class Tcr extends Entity {
@@ -48,6 +63,11 @@ class Tcr extends Entity {
 
     String getChainType() {
         vSegment.contains("TRB") ? "beta" : "alpha"
+    }
+    
+    @Override
+    String toString() {
+       [vSegment, regions].toString()
     }
 }
 
@@ -60,6 +80,11 @@ class Complex {
     Complex(String pdbId, String species) {
         this.pdbId = pdbId
         this.species = species
+    }
+
+    @Override
+    String toString() {
+       [pdbId, species, mhc, tcr].toString()
     }
 }
 
@@ -101,6 +126,7 @@ new File(args[0]).eachLine { it, ind ->
     if (ind == 1) return
     def splitLine = it.split("\t")
     def (pdbId, chainId, species, type, descr) = splitLine
+    species = species.replaceAll(" +", "_")
     def complex = complexMap[pdbId]
     if (!complex) {
         complexMap.put(pdbId, complex = new Complex(pdbId, species))
@@ -124,7 +150,7 @@ new File(args[1]).eachLine { it, ind ->
     if (complex.species.toLowerCase() == species.toLowerCase()) {
         complex.mhc.add(new Mhc(pdbChain: chainId, allele: allele.split("\\|")[1]))
     } else {
-        System.err.println "Species mismatch for $pdbId:$chainId in MHC annotation"
+        System.err.println "Species mismatch for $pdbId:$chainId in MHC annotation ($species instead of ${complex.species})"
     }
 }
 
@@ -146,7 +172,7 @@ new File(args[2]).eachLine { it, ind ->
         }
         tcr.regions.add(new Region(region, seq, start.toInteger(), end.toInteger()))
     } else {
-        System.err.println("Species mismatch for $pdbId:$chainId in TCR annotation")
+        System.err.println("Species mismatch for $pdbId:$chainId in TCR annotation ($species instead of ${complex.species})")
     }
 }
 
@@ -165,11 +191,11 @@ new File(args[3]).withPrintWriter { pw ->
     complexMap.values().each { Complex complex ->
         boolean problems = false
         if (complex.mhc.size() != 2) {
-            System.err.println("Bad PDB record ${complex.pdbId}: missing MHC annotation")
+            System.err.println("Bad PDB record ${complex.pdbId}: wrong MHC annotation, #mhc=${complex.mhc.size()}")
             problems = true
         }
         if (complex.tcr.size() != 2) {
-            System.err.println("Bad PDB record ${complex.pdbId}: missing TCR annotation")
+            System.err.println("Bad PDB record ${complex.pdbId}: wrong TCR annotation, #tcr=${complex.tcr.size()}")
             problems = true
         }
         if (complex.tcr.any { tcr -> tcr.regions.find { it.type == "CDR3" } == null }) {
