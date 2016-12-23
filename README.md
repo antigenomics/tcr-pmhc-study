@@ -21,7 +21,8 @@ This repository contains a set of scripts that automate downloading, pre-process
 To run the pipeline execute the ``run.sh`` script. It will proceed with the list of PDB ids from ``result/extended_pdb_ids.txt``. Some parts of the script are rather time-consuming, especially structural data annotation (downloading PDB files and running GROMACS). The results will be stored in ``result/`` folder:
 
 - ``final.annotations.txt`` contains the list of PDB entries that passed filtering and their annotation
-- ``structure.txt`` contains annotated data on the amino acid level, with pairwise residue distances and interaction energies
+- ``structure.txt`` or ``structure.txt.gz`` contains annotated data on the amino acid level, with pairwise residue distances and interaction energies for TCR:antigen pairs.
+- ``structure.mhc.txt`` or ``structure.mhc.txt.gz`` contains annotated data on the amino acid level, with pairwise residue distances and interaction energies for TCR:MHC pairs.
 
 Meta-analysis of the resulting dataset is stored in the ``analysis/`` folder.
 
