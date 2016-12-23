@@ -27,11 +27,12 @@ Meta-analysis of the resulting dataset is stored in the ``analysis/`` folder.
 
 ### Pre-requisites
 
-The pipeline is written in [Groovy](http://www.groovy-lang.org) and [Python](https://www.continuum.io/downloads) (written in ``3.5`` but should run under ``2.7``) and requires both to run. Python scripts require ``pandas`` and ``BioPython`` packages to run.
+The pipeline is written in [Groovy](http://www.groovy-lang.org) and [Python](https://www.continuum.io/downloads) (written in ``3.5`` but should run under ``2.7``) and requires both to run.
 
 Three third-party software tools that are required:
 
-- [BLAST](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download). Ensure that ``blastp`` and ``makeblastdb`` are in your ``$PATH``.
+- [Anaconda](https://www.continuum.io/downloads) or [Miniconda](http://conda.pydata.org/miniconda.html) with installed `pandas` and `BioPython` (for both condas) packages.
+- Python packages `openmm` and `pdbfixer`, available only in Anaconda.
+- [BLAST](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastDocs&DOC_TYPE=Download). Ensure that ``blastp`` and ``makeblastdb`` are in your ``$PATH``. We highly recommend you to use `homebrew` for [OSX](http://brew.sh) / [Linux](http://linuxbrew.sh) for BLAST and IgBLAST installations.
 - [IgBlast](http://www.ncbi.nlm.nih.gov/igblast/faq.html#standalone), strictly the ``1.4.0`` version. Ensure that ``igblastp`` is in your ``$PATH``.
 - [GROMACS](http://www.gromacs.org) for computing interaction energies. Ensure that ``gmx`` is in your ``$PATH``.
-
