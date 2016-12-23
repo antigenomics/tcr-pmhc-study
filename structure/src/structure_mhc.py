@@ -14,18 +14,16 @@ warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser(description="structure.py")
 parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
                     help="annotation table ptah")
-parser.add_argument("-j", nargs=1, type=str, default="../../result/tcr.jreg.annotations.txt",
-                    help="J-region annotation table")
-parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
+parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.mhc.txt",
                     help="output table path")
+parser.add_argument("-d", "--distance", nargs=1, type=int, default=25,
+                    help="max allowed distance")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
                     help="temporary folder path")
 parser.add_argument("-m", nargs=1, type=bool, default=False,
                     help="perform an additional minimization round prior to estimating energies")
 parser.add_argument("-e", nargs=1, type=str, default="total",
                     help="energy term to compute (Coul/LJ-SR/LR, total or none)")
-parser.add_argument("--gmx", action="store_true",
-                    help="use GROMACS to compute energies if passed (don't use it by default)")
 
 args = parser.parse_args()
 
@@ -37,49 +35,30 @@ if type(args.o) is list:
     args.o = args.o[0]
 output_file = path.abspath(args.o)
 
-if type(args.j) is list:
-    args.j = args.j[0]
-jreg_file = path.abspath(args.j)
-
-minimized = args.m
-energy_term_name = args.e
-use_gmx = args.gmx
+if type(args.distance) is list:
+    args.d = args.d[0]
+max_distance = args.distance
 
 chdir(path.dirname(path.realpath(__file__)))
 
 # Create temporary folders
-(pdb_dir, gmx_dir) = path.abspath(args.t + '/pdb/'), path.abspath(args.t + '/gmx/')
+pdb_dir = path.abspath(args.t + '/pdb/')
 
 if not path.exists(pdb_dir):
     makedirs(pdb_dir)
-
-if use_gmx:
-    print("Using GROMACS...")
-
-    if path.exists(gmx_dir):
-        rmtree(gmx_dir)
-
-    makedirs(gmx_dir)
 
 param_template_path = path.abspath("../res/")
 
 # Writing output file header
 col_names = ['pdb_id', 'species',
-             'mhc_type', 'mhc_a_allele', 'mhc_b_allele',
-             'antigen_seq',
+             'mhc_type',
              'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
-             'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
-             'pos_tcr', 'pos_antigen',
+             'aa_tcr', 'aa_mhc', 'len_tcr', 'len_mhc',
+             'pos_tcr', 'pos_mhc',
              'distance', "energy"]
 
 with open(output_file, 'w') as f:
     f.write('\t'.join(col_names) + '\n')
-
-# Main loop
-# Work in GROMACS path, as inevitably there will be lots of mess created in work dir
-# and many paths are specified relative to it
-
-chdir(gmx_dir)
 
 pdb_list = PDBList()
 pdb_parser = PDBParser()
@@ -91,6 +70,7 @@ bypdb = table.groupby("pdb_id")
 i = 0
 
 for pdb_id, pdb_group in bypdb:
+
     # Load PDB file
     pdb_file = pdb_list.retrieve_pdb_file(pdb_id, pdir=pdb_dir)
 
@@ -99,32 +79,18 @@ for pdb_id, pdb_group in bypdb:
 
     # Load model from original pdb file
     model = pdb_parser.get_structure(pdb_id, pdb_file)[0]
-    
-    if use_gmx:
-        # Fix PDB structure and make GROMACS files, we'll use it later
-        print(pdb_id, "-- fixing PDB")
-        pdb_file = fix_pdb(pdb_id, pdb_file, pdb_group)
-
-        print(pdb_id, "-- making topology")
-        prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path)
-        if minimized:
-            print(pdb_id, "-- running energy minimization")
-            run_minimization(pdb_id, param_template_path)
 
     # Store annotation for entire complex
     pdb_annot = pdb_group.iloc[0]
 
     # Get and check antigen residues
-    antigen_chain = model[pdb_annot['chain_antigen']]
-    antigen_seq = pdb_annot['antigen_seq']
-    antigen_range = range(len(antigen_seq))
-    antigen_residues = get_residues(antigen_chain, antigen_range)
-    antigen_seq_obs = get_seq(antigen_residues)
+    mhc_a_chain = model[pdb_annot['chain_mhc_a']]
+    mhc_a_range = range(len(model[pdb_annot['chain_mhc_a']]))
+    mhc_a_residues = get_residues(mhc_a_chain, mhc_a_range)
 
-    if antigen_seq != antigen_seq_obs:
-        warning("Antigen sequence mismatch (expected observed): ", antigen_seq, antigen_seq_obs,
-                ". Replacing with one from PDB.")
-        pdb_annot['antigen_seq'] = antigen_seq_obs
+    mhc_b_chain = model[pdb_annot['chain_mhc_b']]
+    mhc_b_range = range(len(model[pdb_annot['chain_mhc_b']]))
+    mhc_b_residues = get_residues(mhc_b_chain, mhc_b_range)
 
     # Iterate by TCR chain/region (CDR1,2,3 + FR1,2,3)
     byregion = pdb_group.groupby(['chain_tcr', 'tcr_region'])
@@ -146,46 +112,31 @@ for pdb_id, pdb_group in bypdb:
         print(pdb_id, "- computing energies for", tcr_annot['tcr_v_allele'], ':', tcr_region_id[1])
 
         # Compute distances and add them to results
-        distances = calc_distances(tcr_chain.get_id(), antigen_chain.get_id(),
+        distances = calc_distances_mhc(tcr_chain.get_id(), mhc_a_chain.get_id(),
                                    tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
-                                   tcr_region_residues, antigen_residues, tcr_region_range, antigen_range)
-
-        if use_gmx:
-            # Run the following separately for each region as GROMACS will not support >64 energy groups on NxN kernels
-            pdb_sub_id = pdb_id + '.' + '.'.join(tcr_region_id)
-
-            # Assign energy groups, create indexes
-            keep_idxs = set()
-
-            for row in distances:
-                keep_idxs.add(row['idx_tcr'])
-                keep_idxs.add(row['idx_antigen'])
-
-            # Create index and store energy group (aka residue id) order, as GROMACS routines will fail otherwise
-            idxs = create_index(pdb_id, pdb_sub_id, keep_idxs)
-
-            # Compute energies
-            run_single_point(pdb_id, pdb_sub_id, param_template_path, minimized, idxs)
-
-            # Append general annotation, extract and append energies
-            energies = read_enemat(pdb_sub_id, energy_term_name, idxs)
-
+                                   tcr_region_residues, mhc_a_residues, tcr_region_range, mhc_a_range)
         for row in distances:
-            row.update(tcr_annot.to_dict())
-            if use_gmx:
-                row['energy'] = energies.get((row['idx_tcr'], row['idx_antigen']), float('nan'))
-            else:
+            if row["distance"] <= max_distance:
+                row.update(tcr_annot.to_dict())
                 row['energy'] = "NA"
+                results_by_pdb.append(row)
 
-        results_by_pdb.extend(distances)
+
+        distances = calc_distances_mhc(tcr_chain.get_id(), mhc_b_chain.get_id(),
+                                   tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
+                                   tcr_region_residues, mhc_b_residues, tcr_region_range, mhc_b_range)
+        for row in distances:
+            if row["distance"] <= max_distance:
+                row.update(tcr_annot.to_dict())
+                row['energy'] = "NA"
+                results_by_pdb.append(row)
+
 
         i += 1
 
     # Write selected columns and delete gmx/ content
     res = pd.DataFrame(results_by_pdb)[col_names]
     res.to_csv(output_file, sep='\t', header=False, index=False, mode='a')
-    if use_gmx:
-        clear_folder(gmx_dir)
     print("Done")
 
-print("Finished processing", table.shape[0], " entries.")
+print("Finished processing", table.shape[0], "entries.")

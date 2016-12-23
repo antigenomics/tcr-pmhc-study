@@ -36,6 +36,8 @@ _trans = {'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
           # modified residues go below
           'PFF': 'F', 'F2F': 'F'}
 
+_skip = set(["HOH", "EMC", "NDG", "NAG", "GOL", "IOD"])
+
 
 def get_aa_code(res):
     return _trans[res.get_resname()]
@@ -97,7 +99,24 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
              'pos_antigen': j,
              'distance': calc_distance(aa_tcr, aa_ag, cbeta_dist)}
             for i, aa_tcr in enumerate(tcr_residues)
-            for j, aa_ag in enumerate(ag_residues)]
+            for j, aa_ag in enumerate(ag_residues) if aa_ag.get_resname() not in _skip]
+
+
+def calc_distances_mhc(tcr_chain, mhc_chain, tcr_v_allele, tcr_region, tcr_residues, mhc_residues, tcr_range, mhc_range, cbeta_dist=False):
+    # indexes are required to access gromacs data
+    return [{'tcr_v_allele': tcr_v_allele,
+             'tcr_region': tcr_region,
+             'idx_tcr': tcr_chain + '_' + str(aa_tcr.get_id()[1]),
+             'idx_mhc': mhc_chain + '_' + str(aa_mhc.get_id()[1]),
+             'aa_tcr': get_aa_code(aa_tcr),
+             'aa_mhc': get_aa_code(aa_mhc),
+             'len_tcr': len(tcr_range),
+             'len_mhc': len(mhc_range),
+             'pos_tcr': i,
+             'pos_mhc': j,
+             'distance': calc_distance(aa_tcr, aa_mhc, cbeta_dist)}
+            for i, aa_tcr in enumerate(tcr_residues)
+            for j, aa_mhc in enumerate(mhc_residues) if aa_mhc.get_resname() not in _skip]
 
 
 # PDBfixer
