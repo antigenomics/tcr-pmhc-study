@@ -1,6 +1,8 @@
 ---
-title: "BNLEARN"
-output: pdf_document
+title: "Bayesian network analysis of TCR:pMHC contacts"
+output:
+  html_document:
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
@@ -17,33 +19,42 @@ library(reshape2)
 library(ggplot2)
 library(bnlearn)
 
+DIST_THRESHOLD = 6
 
-df <- read.table("structure.txt", header = T, sep="\t") %>%
+df = read.table("structure.txt.gz", header = T, sep="\t") %>%
+  filter(tcr_region %in% c("CDR1", "CDR2", "CDR3")) %>%
   mutate(tcr_chain = as.factor(substr(as.character(tcr_v_allele), 1, 3)),
          pos_tcr = as.numeric(pos_tcr),
          len_tcr = as.numeric(len_tcr),
          pos_antigen = as.numeric(pos_antigen),
          len_antigen = as.numeric(len_antigen)) %>%
-  select(pdb_id, tcr_region, tcr_chain, pos_tcr, len_tcr, aa_tcr, pos_antigen, len_antigen, aa_antigen, mhc_type, distance) %>%
-  mutate(contact = as.factor(distance <= 6),
+  dplyr::select(pdb_id, tcr_region, tcr_chain, 
+                pos_tcr, len_tcr, aa_tcr, 
+                pos_antigen, len_antigen, aa_antigen, mhc_type, distance) %>%
+  mutate(contact = as.factor(distance <= DIST_THRESHOLD),
          pos_rel_tcr = cut(pos_tcr / (len_tcr - 1), 5),
-         pos_rel_antigen = cut(pos_antigen / (len_antigen - 1), 5)) 
+         pos_rel_antigen = cut(pos_antigen / (len_antigen - 1), 5))
+
+print(length(unique(df$pdb_id)))
 
 # Filter no contact complexes
 
-df.noc <- df %>%
+df.noc = df %>%
   group_by(pdb_id, tcr_chain) %>%
   summarise(contacts = sum(as.logical(contact))) %>%
   filter(contacts < 3)
 
-df <- df %>%
+df = df %>%
   filter(!(pdb_id %in% df.noc$pdb_id))
 
-pdb_id <- df$pdb_id
+pdb_id = df$pdb_id
 
-df <- df %>% select(tcr_region, tcr_chain, pos_rel_tcr, aa_tcr, pos_rel_antigen, aa_antigen, mhc_type, contact)
+df = df %>% dplyr::select(tcr_region, tcr_chain, 
+                          pos_rel_tcr, aa_tcr, pos_rel_antigen, aa_antigen, 
+                          mhc_type, contact) %>%
+  droplevels()
 
-df$contact[is.na(df$contact)] <- "FALSE"
+df$contact[is.na(df$contact)] = "FALSE"
 
 head(df)
 
@@ -53,13 +64,13 @@ summary(df)
 Inferred model
 
 ```{r}
-tb <- tree.bayes(df, training = "contact")
+tb = tree.bayes(df, training = "contact")
 
 graphviz.plot(tb)
 ```
 
 ```{r}
-emp_net <- model2network(paste(
+emp_net = model2network(paste(
   "[contact]",
   "[tcr_chain|contact]",
   "[mhc_type|contact]",
@@ -74,7 +85,7 @@ graphviz.plot(emp_net)
 ```
 
 ```{r}
-fit <- bn.fit(emp_net, df, method="bayes")
+fit = bn.fit(emp_net, df, method="bayes")
 
 BIC(fit, df)
 ```
@@ -82,56 +93,59 @@ BIC(fit, df)
 ```{r}
 library(pROC)
 
-res <- predict(fit, node="contact", method="bayes-lw", data=df, prob=T)
+res = predict(fit, node="contact", method="bayes-lw", data=df, prob=T)
 
-p <- attributes(res)$prob
+p = attributes(res)$prob
 
-rocobj <- plot.roc(df[,"contact"], p[2,], ci=T)
+rocobj = plot.roc(df[,"contact"], p[2,], ci=T)
 
 rocobj
 ```
 
 ```{r}
-df.cplx <- data.frame(pdb_id = pdb_id)
-df.cplx$tcr_chain <- df$tcr_chain
-df.cplx$contact <- as.logical(df$contact)
-df.cplx$p <- p[2,]
+df.cplx = data.frame(pdb_id = pdb_id)
+df.cplx$tcr_chain = df$tcr_chain
+df.cplx$mhc_type = df$mhc_type
+df.cplx$contact = as.logical(df$contact)
+df.cplx$p = p[2,]
 
-df.cplx <- df.cplx %>%
-   group_by(pdb_id, tcr_chain) %>%
+df.cplx = df.cplx %>%
+   group_by(pdb_id, tcr_chain, mhc_type) %>%
    summarise(contacts = sum(as.logical(contact)),
              contacts.pred = sum(p))
  
-ggplot(df.cplx, aes(contacts, contacts.pred)) + 
+ggplot(df.cplx, aes(contacts, contacts.pred, color = tcr_chain)) + 
+   geom_abline(slope = 1, intercept = 0, linetype="dashed") +
    geom_point(shape=21) +
-   geom_abline(slope = 1, intercept = 0, color = "red", linetype="dashed") +
-   scale_x_continuous(limits=c(0, 50)) +
-   scale_y_continuous(limits=c(0, 50)) +
+   scale_x_continuous(limits=c(0, 40)) +
+   scale_y_continuous(limits=c(0, 40)) +
+   scale_color_brewer(palette = "Set1") +
+   facet_wrap(~mhc_type) +
    theme_bw()
 ```
 
 ```{r}
-get_prob <- function(var_name) {
-  .df <- as.data.frame(fit[[var_name]]$prob)
-  colnames(.df) <- gsub("Var1", "contact", colnames(.df))
-  colnames(.df) <- gsub("Freq", paste("Freq", var_name, sep="."), colnames(.df))
+get_prob = function(var_name) {
+  .df = as.data.frame(fit[[var_name]]$prob)
+  colnames(.df) = gsub("Var1", "contact", colnames(.df))
+  colnames(.df) = gsub("Freq", paste("Freq", var_name, sep="."), colnames(.df))
   .df
 }
 
-prob.tmp <- get_prob("contact")
+prob.tmp = get_prob("contact")
 
 for (var in colnames(df)[!(colnames(df) %in% c("contact", "pdb_id"))]) {
-  prob.tmp <- merge(prob.tmp, get_prob(var))
+  prob.tmp = merge(prob.tmp, get_prob(var))
 }
 
-prob.tmp$contact <- as.logical(prob.tmp$contact)
+prob.tmp$contact = as.logical(prob.tmp$contact)
 
-prob.tmp$P <- apply(prob.tmp[,which(grepl("Freq",colnames(prob.tmp)))], 1,
+prob.tmp$P = apply(prob.tmp[,which(grepl("Freq",colnames(prob.tmp)))], 1,
                 function(x) prod(x))
 ```
 
 ```{r}
-prob.aTaAC <- prob.tmp %>%
+prob.aTaAC = prob.tmp %>%
   group_by(aa_tcr, aa_antigen, contact) %>%
   summarise(P = sum(P)) %>%
   group_by(aa_tcr, aa_antigen) %>%
@@ -139,32 +153,33 @@ prob.aTaAC <- prob.tmp %>%
 ```
 
 ```{r}
-aa_pair_mat <- dcast(prob.aTaAC, aa_tcr ~ aa_antigen)
-rownames(aa_pair_mat) <- aa_pair_mat$aa_tcr
-aa_pair_mat$aa_tcr <- NULL
-aa_pair_mat <- as.matrix(aa_pair_mat)
-aa_pair_mat[is.na(aa_pair_mat)] <- 0
+aa_pair_mat = dcast(prob.aTaAC, aa_tcr ~ aa_antigen)
+rownames(aa_pair_mat) = aa_pair_mat$aa_tcr
+aa_pair_mat$aa_tcr = NULL
+aa_pair_mat = as.matrix(aa_pair_mat)
+aa_pair_mat[is.na(aa_pair_mat)] = 0
 
 df.hydro <- data.frame(
   aa = strsplit("I V L F C M A W G T S Y P H N D Q E K R", " ")[[1]],
   hydrop = strsplit("4.5 4.2 3.8 2.8 2.5 1.9 1.8 -0.9 -0.4 -0.7 -0.8 -1.3 -1.6 -3.2 -3.5 -3.5 -3.5 -3.5 -3.9 -4.5", " ")[[1]]
 )
 
-df.hydro <- df.hydro %>%
+df.hydro = df.hydro %>%
   mutate(hydrop = as.numeric(as.character(hydrop))) %>%
-  arrange(hydrop)
+  arrange(hydrop) %>%
+  mutate(hydrop.sc = round(100 * (hydrop - min(hydrop)) / (max(hydrop) - min(hydrop))))
 
-df.hydro$color <- colorRampPalette(rev(brewer.pal(11, 'PRGn')))(20)
+df.hydro$color = colorRampPalette(brewer.pal(11, 'PRGn'))(101)[df.hydro$hydrop.sc + 1]
 
-aa_colors <- df.hydro$color
-names(aa_colors) <- df.hydro$aa
+aa_colors = df.hydro$color
+names(aa_colors) = df.hydro$aa
 
-js_calc <- function(p, q) {
+js_calc = function(p, q) {
   m <- 0.5 * (p + q)
   0.5 * (sum(p * log(p / m)) + sum(q * log(q / m)))
 }
 
-js_dist <- function(x) {
+js_dist = function(x) {
     mat <- x
     for(i in 1:nrow(mat)) {
         for(j in 1:nrow(mat)) {
@@ -184,23 +199,23 @@ heatmap.2(aa_pair_mat,
 ```
 
 ```{r}
-df.1 <- prob.tmp %>%
+df.1 = prob.tmp %>%
   group_by(aa_tcr, contact) %>%
   summarise(P = sum(P)) %>%
   group_by(aa_tcr) %>%
   summarise(P = P[which(contact)] / sum(P)) 
 
-df.2 <- prob.tmp %>%
+df.2 = prob.tmp %>%
   group_by(aa_antigen, contact) %>%
   summarise(P = sum(P)) %>%
   group_by(aa_antigen) %>%
   summarise(P = P[which(contact)] / sum(P)) 
 
-colnames(df.1) <- c("aa", "P_TCR")
-colnames(df.2) <- c("aa", "P_AG")
+colnames(df.1) = c("aa", "P_TCR")
+colnames(df.2) = c("aa", "P_AG")
 
-df.1 <- merge(df.1, df.2)
-df.1 <- merge(df.1, df.hydro)
+df.1 = merge(df.1, df.2)
+df.1 = merge(df.1, df.hydro)
 
 ggplot(df.1, aes(x=P_TCR, y=P_AG, fill=hydrop)) +
   geom_label(aes(label=aa)) +
@@ -210,10 +225,10 @@ ggplot(df.1, aes(x=P_TCR, y=P_AG, fill=hydrop)) +
 ```
 
 ```{r}
-rf <- colorRampPalette(rev(brewer.pal(11, 'Spectral')))
-r <- rf(32)
+rf = colorRampPalette(rev(brewer.pal(11, 'Spectral')))
+r = rf(32)
 
-df.1 <- prob.tmp %>%
+df.1 = prob.tmp %>%
   group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type, contact) %>%
   summarise(P = sum(P)) %>%
   group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type) %>%
@@ -226,7 +241,7 @@ ggplot(df.1, aes(x=pos_rel_antigen, y = pos_rel_tcr, fill=P)) +
 ```
 
 ```{r}
-df.1 <- prob.tmp %>%
+df.1 = prob.tmp %>%
   group_by(aa_tcr, pos_rel_tcr, tcr_chain, tcr_region, contact) %>%
   summarise(P = sum(P)) %>%
   group_by(aa_tcr, pos_rel_tcr, tcr_chain, tcr_region) %>%
@@ -235,5 +250,19 @@ df.1 <- prob.tmp %>%
 ggplot(df.1, aes(x=pos_rel_tcr, y = aa_tcr, fill=P)) +
   geom_tile() + 
   scale_fill_gradientn(colors=r) +
-  facet_grid(tcr_chain~tcr_region)
+  facet_grid(tcr_chain ~ tcr_region)
+```
+
+```{r}
+df.vdjtools = df.1 %>%
+  filter(tcr_region == "CDR3") %>%
+  dplyr::select(tcr_chain, pos_rel_tcr, aa_tcr, P) %>%
+  arrange(tcr_chain, pos_rel_tcr, aa_tcr)
+
+df.vdjtools$pos_rel_tcr = as.integer(df.vdjtools$pos_rel_tcr) - 1
+df.vdjtools$pos_max = max(df.vdjtools$pos_rel_tcr) + 1
+
+df.vdjtools = as.data.frame(df.vdjtools)
+
+write.table(df.vdjtools, "cdr3contact.txt", row.names = F, quote = F)
 ```
