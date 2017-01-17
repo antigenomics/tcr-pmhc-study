@@ -18,6 +18,7 @@ library(gplots)
 library(reshape2)
 library(ggplot2)
 library(bnlearn)
+library(pROC)
 
 DIST_THRESHOLD = 6
 
@@ -42,7 +43,7 @@ print(length(unique(df$pdb_id)))
 df.noc = df %>%
   group_by(pdb_id, tcr_chain) %>%
   summarise(contacts = sum(as.logical(contact))) %>%
-  filter(contacts < 3)
+  filter(contacts < 1)
 
 df = df %>%
   filter(!(pdb_id %in% df.noc$pdb_id))
@@ -91,8 +92,6 @@ BIC(fit, df)
 ```
 
 ```{r}
-library(pROC)
-
 res = predict(fit, node="contact", method="bayes-lw", data=df, prob=T)
 
 p = attributes(res)$prob
@@ -255,14 +254,32 @@ ggplot(df.1, aes(x=pos_rel_tcr, y = aa_tcr, fill=P)) +
 
 ```{r}
 df.vdjtools = df.1 %>%
-  filter(tcr_region == "CDR3") %>%
-  dplyr::select(tcr_chain, pos_rel_tcr, aa_tcr, P) %>%
-  arrange(tcr_chain, pos_rel_tcr, aa_tcr)
+  dplyr::select(tcr_chain, tcr_region, pos_rel_tcr, aa_tcr, P) %>%
+  arrange(tcr_chain, tcr_region, pos_rel_tcr, aa_tcr)
 
 df.vdjtools$pos_rel_tcr = as.integer(df.vdjtools$pos_rel_tcr) - 1
 df.vdjtools$pos_max = max(df.vdjtools$pos_rel_tcr) + 1
 
 df.vdjtools = as.data.frame(df.vdjtools)
 
-write.table(df.vdjtools, "cdr3contact.txt", row.names = F, quote = F)
+write.table(df.vdjtools, "cdr.contact.txt", row.names = F, quote = F, sep = "\t")
+```
+
+```{r}
+df.vdjtools = prob.tmp %>%
+  group_by(mhc_type, aa_tcr, pos_rel_tcr, tcr_chain, tcr_region, contact) %>%
+  summarise(P = sum(P)) %>%
+  group_by(mhc_type, aa_tcr, pos_rel_tcr, tcr_chain, tcr_region) %>%
+  summarise(P = P[which(contact)] / sum(P)) 
+
+df.vdjtools = df.vdjtools %>%
+  dplyr::select(mhc_type, tcr_chain, tcr_region, pos_rel_tcr, aa_tcr, P) %>%
+  arrange(mhc_type, tcr_chain, tcr_region, pos_rel_tcr, aa_tcr)
+
+df.vdjtools$pos_rel_tcr = as.integer(df.vdjtools$pos_rel_tcr) - 1
+df.vdjtools$pos_max = max(df.vdjtools$pos_rel_tcr) + 1
+
+df.vdjtools = as.data.frame(df.vdjtools)
+
+write.table(df.vdjtools, "cdr.mhc.contact.txt", row.names = F, quote = F, sep = "\t")
 ```
