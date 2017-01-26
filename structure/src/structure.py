@@ -14,8 +14,6 @@ warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser(description="structure.py")
 parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
                     help="annotation table ptah")
-parser.add_argument("-j", nargs=1, type=str, default="../../result/tcr.jreg.annotations.txt",
-                    help="J-region annotation table")
 parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
                     help="output table path")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
@@ -36,10 +34,6 @@ input_file = path.abspath(args.i)
 if type(args.o) is list:
     args.o = args.o[0]
 output_file = path.abspath(args.o)
-
-if type(args.j) is list:
-    args.j = args.j[0]
-jreg_file = path.abspath(args.j)
 
 minimized = args.m
 energy_term_name = args.e

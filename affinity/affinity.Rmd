@@ -1,0 +1,138 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+Load contact probabilities
+
+```{r}
+df.p = read.table("contact.probs.txt", header = T, sep = "\t") %>%
+  filter(tcr_region == "CDR3")
+
+tcr_pos_bins = max(df.p$pos_rel_tcr)
+ag_pos_bins = max(df.p$pos_rel_antigen)
+```
+
+Load affinity data
+
+```{r}
+df.aff = read.table("affinity.txt", header = T, sep = "\t")
+```
+
+Computing contact matrix
+
+```{r}
+compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq) {
+  cdr_seq = as.character(cdr_seq)
+  ag_seq = as.character(ag_seq)
+  df.cdr = data.frame(aa_tcr = strsplit(cdr_seq, "")[[1]], 
+                      pos_tcr = 1:nchar(cdr_seq))
+  
+  df.aa = data.frame(aa_antigen = strsplit(ag_seq, "")[[1]], 
+                      pos_antigen = 1:nchar(ag_seq))
+  
+  df.pairs = expand.grid(df.cdr$pos_tcr, df.aa$pos_antigen)
+  colnames(df.pairs) = c("pos_tcr", "pos_antigen")
+  
+  df.pairs = merge(df.pairs, df.cdr)
+  df.pairs = merge(df.pairs, df.aa)
+  df.pairs$mhc_type = mhc_type
+  df.pairs$tcr_chain = tcr_chain
+  df.pairs$tcr_region = tcr_region
+  
+  df.pairs$pos_rel_tcr = as.integer((df.pairs$pos_tcr - 1) / (nchar(cdr_seq) - 1) * (tcr_pos_bins - 1)) + 1
+  df.pairs$pos_rel_antigen = as.integer((df.pairs$pos_antigen - 1) / (nchar(ag_seq) - 1) * (ag_pos_bins - 1)) + 1
+  
+  merge(df.pairs, df.p)
+}
+
+cm.tmp = compute_contact_map("MHCI","TRB","CDR3","CASSDSYGYTF","KLVALGINAV")
+cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAYREVNDMRF","KLVALGINAV"))
+
+
+print(cm.tmp)
+
+ggplot(cm.tmp, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = P), cex=2) +
+  scale_x_continuous(breaks=0:20) +
+  scale_y_continuous(breaks=0:20) +
+  scale_fill_gradient("P", limits = c(0, 1),
+                                 low="white", high="#313695") +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
+
+```{r}
+cm.tmp = compute_contact_map("MHCI","TRB","CDR3","CAWSETGLGTGELFF","ELAGIGILTV")
+#cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVRMDSSYKLIFF","RYPLTFGWCF"))
+
+print(cm.tmp)
+
+sum(cm.tmp$P)
+
+ggplot(cm.tmp, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = P), cex=2) +
+  scale_x_continuous(breaks=0:20) +
+  scale_y_continuous(breaks=0:20) +
+  scale_fill_gradient("P", limits = c(0, 1),
+                                 low="white", high="#313695") +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
+
+```{r}
+cm.tmp = compute_contact_map("MHCI","TRB","CDR3","CAWSETGLNLGGWFF","ELAGIGILTV")
+#cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVRMDSSYKLIFF","RYPLTFGWCF"))
+
+print(cm.tmp)
+
+sum(cm.tmp$P)
+
+ggplot(cm.tmp, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = P), cex=2) +
+  scale_x_continuous(breaks=0:20) +
+  scale_y_continuous(breaks=0:20) +
+  scale_fill_gradient("P", limits = c(0, 1),
+                                 low="white", high="#313695") +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
+
+Compute expected number of contacts
+
+```{r}
+compute_contacts = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq) {
+  if (nchar(as.character(cdr_seq)) == 0) {
+    return(NaN)
+  }
+  sum(compute_contact_map(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq)$P)
+}
+
+df.aff$contacts = with(df.aff, 
+                       mapply(function(mhc_type, tcr_chain, tcr_region, tcr_region_seq, antigen_seq) 
+                         compute_contacts(mhc_type, tcr_chain, tcr_region, tcr_region_seq, antigen_seq),
+                         mhc_type, tcr_chain, tcr_region, tcr_region_seq, antigen_seq))
+```
+
+```{r}
+df.aff1 = df.aff %>%
+  group_by(complex_id, affinity) %>%
+  summarize(contacts = sum(contacts)) %>%
+  filter(!is.na(contacts))
+
+ggplot(df.aff, aes(contacts, log10(affinity))) +
+  geom_point()
+```
+
