@@ -19,11 +19,28 @@ library(reshape2)
 library(ggplot2)
 library(bnlearn)
 library(pROC)
+rf = colorRampPalette(rev(brewer.pal(11, 'Spectral')))
+r = rf(32)
 
-DIST_THRESHOLD = 6
-ENERGY_THRESHOLD = 0 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2998601/
+# Energy computation https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2998601/
 CDR_BINS = 5
+CDR_BIN_SIZE = 1
+CDR_ABS_MAXBIN = 5
 AG_BINS = 5
+
+get_rel_pos = function(pos, len, bins) {
+  # move to middle
+  pos = ifelse(len < bins, pos - len/2 + bins/2, pos)
+  len = ifelse(len < bins, bins, len)
+  
+  as.integer(((pos / len) * # 0..(1
+    bins) + 1) # 1..bins
+}
+
+get_abs_pos = function(pos, len, bin_size) {
+  x = as.integer(abs(pos - len / 2) / bin_size + 1)
+  ifelse(x > CDR_ABS_MAXBIN, CDR_ABS_MAXBIN, x)
+}
 
 df = read.table("structure.txt", header = T, sep="\t") %>%
   filter(tcr_region %in% c("CDR1", "CDR2", "CDR3")) %>%
@@ -37,45 +54,36 @@ df = read.table("structure.txt", header = T, sep="\t") %>%
                 pos_antigen, len_antigen, aa_antigen, mhc_type, 
                 distance,
                 energy) %>%
-  mutate(contact = as.factor(energy < ENERGY_THRESHOLD),
-         pos_rel_tcr = cut(pos_tcr / (len_tcr - 1), CDR_BINS),
-         pos_rel_antigen = cut(pos_antigen / (len_antigen - 1), AG_BINS))
+  mutate(contact = as.factor(energy < 0),
+         pos_rel_tcr = as.factor(get_rel_pos(pos_tcr, len_tcr, CDR_BINS)),
+         pos_abs_tcr = as.factor(get_abs_pos(pos_tcr, len_tcr, CDR_BIN_SIZE)),
+         pos_rel_antigen = as.factor(get_rel_pos(pos_antigen, len_antigen, AG_BINS)))
+
+MIN_CONTACTS = 5
+
+good_pdbs = (df %>%
+  group_by(pdb_id) %>%
+  summarize(contacts = sum(contact == "TRUE")) %>%
+  filter(contacts >= MIN_CONTACTS))$pdb_id
+
+df = subset(df, pdb_id %in% good_pdbs)
 
 print(length(unique(df$pdb_id)))
 
 pdb_id = df$pdb_id
+df$contact[is.na(df$contact)] = "FALSE"
 
 df.abspos = df
 
 df = df %>% dplyr::select(tcr_region, tcr_chain,
-                          pos_rel_tcr, aa_tcr, pos_rel_antigen, aa_antigen, 
-                          mhc_type, contact) %>%
+                          pos_rel_tcr, pos_abs_tcr, aa_tcr, pos_rel_antigen, aa_antigen, 
+                          mhc_type, 
+                          contact) %>%
   droplevels()
-
-df$contact[is.na(df$contact)] = "FALSE"
 
 head(df)
 
 summary(df)
-```
-
-```{r}
-ggplot(subset(df.abspos, energy < 0), aes(x=distance, y=-energy)) +
-  #geom_point() +
-  geom_density2d(aes(fill = ..level..), geom="polygon") +
-  geom_hline(yintercept = -ENERGY_THRESHOLD, linetype = "dashed") +
-  geom_vline(xintercept = DIST_THRESHOLD, linetype = "dashed") +
-  scale_y_log10() +
-  facet_wrap(~aa_tcr) +
-  theme_bw()
-```
-
-Inferred model
-
-```{r}
-tb = tree.bayes(df, training = "contact")
-
-graphviz.plot(tb)
 ```
 
 Theoretical model
@@ -87,6 +95,7 @@ emp_net = model2network(paste(
   "[mhc_type|contact]",
   "[tcr_region|contact]",
   "[pos_rel_tcr|contact]", 
+  "[pos_abs_tcr|contact]", 
   "[aa_tcr|contact]", 
   "[pos_rel_antigen|pos_rel_tcr:tcr_region:tcr_chain:mhc_type:contact]", 
   "[aa_antigen|aa_tcr:contact]", 
@@ -117,9 +126,16 @@ rocobj = plot.roc(df[,"contact"], p[2,], ci=T)
 rocobj
 ```
 
+```{r}
+rocobj$thresholds[findInterval(0.9, rocobj$specificities)]
+```
+
 Estimated vs predicted number of contacts
 
 ```{r}
+# http://stats.stackexchange.com/questions/177199/success-of-bernoulli-trials-with-different-probabilities
+# https://en.wikipedia.org/wiki/Poisson_binomial_distribution
+
 df.cplx = data.frame(pdb_id = pdb_id)
 df.cplx$tcr_chain = df$tcr_chain
 df.cplx$tcr_region = df$tcr_region
@@ -130,30 +146,42 @@ df.cplx$p = p[2,]
 df.cplx.1 = df.cplx %>%
    group_by(pdb_id, tcr_chain, mhc_type) %>%
    summarise(contacts = sum(as.logical(contact)),
-             contacts.pred = sum(p))
+             contacts.pred = sum(p),
+             contacts.pred.sd = sqrt(sum(p * (1 - p))),
+             k = n())
  
-ggplot(df.cplx.1, aes(contacts, contacts.pred, color = tcr_chain)) + 
+ggplot(df.cplx.1, aes(contacts, contacts.pred)) + 
+   geom_density2d() +
    geom_abline(slope = 1, intercept = 0, linetype="dashed") +
    geom_point(shape=21) +
-   scale_x_continuous(limits=c(0, 50)) +
-   scale_y_continuous(limits=c(0, 50)) +
-   scale_color_brewer(palette = "Set1") +
-   facet_wrap(~mhc_type) +
+   geom_errorbar(aes(ymin = contacts.pred - contacts.pred.sd, ymax = contacts.pred + contacts.pred.sd)) +
+   #scale_color_brewer(palette = "Set1") +
+   facet_grid(tcr_chain~mhc_type, scales="free", space="free") +
    theme_bw()
 
 # All CDRs linear model
 
-summary(lm(contacts ~ contacts.pred, df.cplx.1))
+summary(lm(contacts ~ contacts.pred:mhc_type:tcr_chain, df.cplx.1))
 
 df.cplx.2 = df.cplx %>%
    filter(tcr_region == "CDR3") %>%
    group_by(pdb_id, tcr_chain, mhc_type) %>%
    summarise(contacts = sum(as.logical(contact)),
-             contacts.pred = sum(p))
+             contacts.pred = sum(p),
+             contacts.pred.sd = sqrt(sum(p * (1 - p))))
+
+ggplot(df.cplx.2, aes(contacts, contacts.pred)) + 
+   geom_density2d() +
+   geom_abline(slope = 1, intercept = 0, linetype="dashed") +
+   geom_point(shape=21) +
+   geom_errorbar(aes(ymin = contacts.pred - contacts.pred.sd, ymax = contacts.pred + contacts.pred.sd)) +
+   #scale_color_brewer(palette = "Set1") +
+   facet_grid(tcr_chain~mhc_type, scales="free", space="free") +
+   theme_bw()
 
 # CDR3 only linear model
 
-summary(lm(contacts ~ contacts.pred, df.cplx.2))
+summary(lm(contacts ~ contacts.pred:mhc_type:tcr_chain, df.cplx.2))
 ```
 
 Here we build a probability matrix from the **bnlearn** results. The results are, for each variable $X_{i}$ the probability $P(X_{i} | \pi_{i})$, where $\pi_{i}$ is the set of parents according to the defined bayes network. We therefore compute the $P(X) = \prod_{i} P(X_{i} | \pi_{i})$
@@ -178,16 +206,18 @@ prob.matrix$P = apply(prob.matrix[,which(grepl("Freq",colnames(prob.matrix)))], 
                 function(x) prod(x))
 
 prob.matrix = prob.matrix %>% 
-  dplyr::select(contact, mhc_type, tcr_chain, tcr_region, aa_tcr, aa_antigen, pos_rel_tcr, pos_rel_antigen, P)
+  dplyr::select(contact, mhc_type, 
+                tcr_chain, tcr_region, aa_tcr, aa_antigen, pos_rel_tcr, pos_abs_tcr, pos_rel_antigen, P)
 ```
 
 ### Example
 
-Compite contact probabilities and merge them with initial dataset
+Compute contact probabilities and merge them with initial dataset
 
 ```{r}
 prob.matrix.cont = prob.matrix %>%
-  group_by(mhc_type, tcr_chain, tcr_region, aa_tcr, aa_antigen, pos_rel_tcr, pos_rel_antigen) %>%
+  group_by(mhc_type, 
+           tcr_chain, tcr_region, aa_tcr, aa_antigen, pos_rel_tcr, pos_abs_tcr, pos_rel_antigen) %>%
   summarize(P = P[which(contact)] / sum(P))
 
 df.m = merge(df.abspos, prob.matrix.cont)
@@ -199,6 +229,7 @@ Write contact probability matrix so it can be used by future generations
 prob.matrix.cont.out = prob.matrix.cont
 
 prob.matrix.cont.out$pos_rel_tcr = as.integer(prob.matrix.cont.out$pos_rel_tcr)
+prob.matrix.cont.out$pos_abs_tcr = as.integer(prob.matrix.cont.out$pos_abs_tcr)
 prob.matrix.cont.out$pos_rel_antigen = as.integer(prob.matrix.cont.out$pos_rel_antigen)
 
 write.table(prob.matrix.cont.out, "contact.probs.txt", sep = "\t", quote = F, row.names = F)
@@ -326,7 +357,7 @@ df.1 = merge(df.1, df.hydro)
 
 ggplot(df.1, aes(x=P_TCR, y=P_AG, fill=hydrop)) +
   geom_label(aes(label=aa)) +
-  scale_fill_gradientn(colors = colorRampPalette(rev(brewer.pal(9, 'PRGn')))(20)) +
+  scale_fill_gradientn(colors = colorRampPalette(brewer.pal(9, 'PRGn'))(20)) +
   #scale_color_gradientn(colors = df.1$color) + 
   theme_bw()
 ```
@@ -336,19 +367,29 @@ ggplot(df.1, aes(x=P_TCR, y=P_AG, fill=hydrop)) +
 Contact probability for relative CDR-antigen residue positions
 
 ```{r}
-rf = colorRampPalette(rev(brewer.pal(11, 'Spectral')))
-r = rf(32)
-
 df.1 = prob.matrix %>%
-  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type, contact) %>%
+  group_by(mhc_type,
+           pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, contact) %>%
   summarise(P = sum(P)) %>%
-  group_by(pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region, mhc_type) %>%
+  group_by(mhc_type,
+           pos_rel_antigen, pos_rel_tcr, tcr_chain, tcr_region) %>%
   summarise(P = P[which(contact)] / sum(P)) 
 
 ggplot(df.1, aes(x = pos_rel_antigen, y = pos_rel_tcr, fill=P)) +
   geom_tile() + 
   scale_fill_gradientn(colors=r) +
   facet_grid(tcr_region~mhc_type+tcr_chain)
+```
+
+```{r}
+df.2 = prob.matrix %>%
+  group_by(pos_abs_tcr, tcr_region, contact) %>%
+  summarise(P = sum(P)) %>%
+  group_by(pos_abs_tcr, tcr_region) %>%
+  summarise(P = P[which(contact)] / sum(P)) 
+
+ggplot(df.2, aes(x = pos_abs_tcr, y = P, group = tcr_region, color=tcr_region)) +
+  geom_point() + geom_line()
 ```
 
 CDR amino acid + position contact probability
@@ -364,4 +405,49 @@ ggplot(subset(df.1, aa_tcr != "C"), aes(x=pos_rel_tcr, y = aa_tcr, fill=P)) +
   geom_tile() + 
   scale_fill_gradientn(colors=r) +
   facet_grid(tcr_chain ~ tcr_region)
+```
+
+Contact energies
+
+```{r}
+df.e = df.abspos %>%
+  filter(energy < 0) %>%
+  select(aa_tcr, aa_antigen, energy) 
+
+df.e2 = df.e
+df.e2$aa_tcr = df.e2$aa_antigen
+df.e2$aa_antigen = df.e$aa_tcr
+
+df.e = rbind(df.e, df.e2) %>%
+  group_by(aa_tcr, aa_antigen) %>%
+  summarize(E = mean(energy))
+
+ggplot(df.e, aes(x=aa_tcr, y = aa_antigen, fill=E)) +
+  geom_tile() + 
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'YlOrRd')))(32))
+
+aa_pair_mat1 = dcast(df.e, aa_tcr ~ aa_antigen)
+rownames(aa_pair_mat1) = aa_pair_mat1$aa_tcr
+aa_pair_mat1$aa_tcr = NULL
+aa_pair_mat1 = as.matrix(aa_pair_mat1)
+aa_pair_mat1[is.na(aa_pair_mat1)] = 0
+
+heatmap.2(aa_pair_mat1)
+
+write.table(df.e, "energy.mean.txt", sep = "\t", quote = F, row.names = F)
+```
+
+```{r}
+df.2 = merge(prob.matrix, df.e) %>%
+  group_by(aa_tcr, aa_antigen, pos_rel_tcr, pos_abs_tcr, tcr_chain, tcr_region, E, contact) %>%
+  summarise(P = sum(P)) %>%
+  group_by(aa_tcr, aa_antigen, pos_rel_tcr, pos_abs_tcr, tcr_chain, tcr_region, E) %>%
+  summarise(P = P[which(contact)] / sum(P))  %>%
+  group_by(aa_tcr, pos_rel_tcr, pos_abs_tcr, tcr_chain, tcr_region) %>%
+  summarise(energy = mean(P * E)) # all antigen aa probs are equal
+
+df.2$pos_rel_tcr = as.integer(df.2$pos_rel_tcr)
+df.2$pos_abs_tcr = as.integer(df.2$pos_abs_tcr)
+
+write.table(df.2, "energy.tcr.txt", sep = "\t", quote = F, row.names = F)
 ```
