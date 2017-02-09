@@ -1,0 +1,235 @@
+---
+title: "Bayesian network analysis of TCR:pMHC contacts"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load data and filter it
+
+```{r}
+library(dplyr)
+library(RColorBrewer)
+library(gplots)
+library(reshape2)
+library(ggplot2)
+library(bnlearn)
+library(pROC)
+library(stringr)
+
+rf = colorRampPalette(rev(brewer.pal(11, 'Spectral')))
+r = rf(32)
+
+# Energy computation https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2998601/
+CDR_BINS = 5
+CDR_BIN_SIZE = 1
+CDR_ABS_MAXBIN = 5
+AG_BINS = 5
+
+get_rel_pos = function(pos, len, bins) {
+  # move to middle
+  pos = ifelse(len < bins, pos - len/2 + bins/2, pos)
+  len = ifelse(len < bins, bins, len)
+  
+  as.integer(((pos / len) * # 0..(1
+    bins) + 1) # 1..bins
+}
+
+get_abs_pos = function(pos, len, bin_size) {
+  x = as.integer(abs(pos - len / 2) / bin_size + 1)
+  ifelse(x > CDR_ABS_MAXBIN, CDR_ABS_MAXBIN, x)
+}
+
+df = read.table("structure.txt", header = T, sep="\t") %>%
+  filter(tcr_region %in% c("CDR1", "CDR2", "CDR3")) %>%
+  mutate(tcr_chain = as.factor(substr(as.character(tcr_v_allele), 1, 3)),
+         pos_tcr = as.numeric(pos_tcr),
+         len_tcr = as.numeric(len_tcr),
+         pos_antigen = as.numeric(pos_antigen),
+         len_antigen = as.numeric(len_antigen)) %>%
+  dplyr::select(pdb_id, antigen_seq, tcr_region, tcr_chain, 
+                pos_tcr, len_tcr, aa_tcr, 
+                pos_antigen, len_antigen, aa_antigen, mhc_type, 
+                distance,
+                energy) %>%
+  mutate(contact = as.factor(energy < 0), energy = ifelse(energy > 0, 0, energy),
+         aa_pair = as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr))),
+         pos_rel_tcr = as.factor(get_rel_pos(pos_tcr, len_tcr, CDR_BINS)),
+         pos_abs_tcr = as.factor(get_abs_pos(pos_tcr, len_tcr, CDR_BIN_SIZE)),
+         pos_rel_antigen = as.factor(get_rel_pos(pos_antigen, len_antigen, AG_BINS)))
+
+MIN_CONTACTS = 5
+
+good_pdbs = (df %>%
+  group_by(pdb_id) %>%
+  summarize(contacts = sum(contact == "TRUE")) %>%
+  filter(contacts >= MIN_CONTACTS))$pdb_id
+
+df = subset(df, pdb_id %in% good_pdbs)
+
+pdb_id = df$pdb_id
+```
+
+```{r}
+df.e = df %>% filter(energy < 0) %>%
+  group_by(aa_pair) %>%
+  summarize(E = mean(energy))
+
+df.e$aa_tcr = str_split_fixed(df.e$aa_pair, " ", 2)[, 1]
+df.e$aa_antigen = str_split_fixed(df.e$aa_pair, " ", 2)[ ,2]
+
+df.e2 = df.e
+df.e2$aa_tcr = df.e$aa_antigen
+df.e2$aa_antigen = df.e$aa_tcr
+
+df.e = rbind(df.e, df.e2)
+df.e2 = NULL
+
+ggplot(df.e, aes(x=aa_tcr, y = aa_antigen, fill=E)) +
+  geom_tile() + 
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'YlOrRd')))(32)) +
+  theme_bw()
+```
+
+Theoretical model
+
+```{r}
+emp_net = model2network(paste(
+  "[contact]",
+  "[tcr_chain|contact]",
+  "[mhc_type|contact]",
+  "[tcr_region|contact]",
+  "[pos_rel_tcr|contact]", 
+  "[pos_abs_tcr|contact]", 
+  "[pos_rel_antigen|pos_rel_tcr:tcr_region:tcr_chain:mhc_type:contact]", 
+  "[aa_pair|contact]", 
+  sep =""))
+
+graphviz.plot(emp_net)
+```
+
+Fit conditional probabilities
+
+```{r}
+df.train = df %>% dplyr::select(tcr_region, tcr_chain,
+                          pos_rel_tcr, pos_abs_tcr, pos_rel_antigen, aa_pair, 
+                          mhc_type, 
+                          contact) %>%
+  droplevels()
+
+head(df.train)
+
+summary(df.train)
+
+fit = bn.fit(emp_net, df.train, method="bayes")
+
+BIC(fit, df.train)
+```
+
+Compute the probabilities and plot the ROC curve
+
+```{r}
+res = predict(fit, node="contact", method="bayes-lw", 
+              data=df.train, prob=T)
+
+p = attributes(res)$prob
+
+plot.roc(df.train[,"contact"], p[2,], ci=T)
+```
+
+Here we build a probability matrix from the **bnlearn** results. The results are, for each variable $X_{i}$ the probability $P(X_{i} | \pi_{i})$, where $\pi_{i}$ is the set of parents according to the defined bayes network. We therefore compute the $P(X) = \prod_{i} P(X_{i} | \pi_{i})$
+
+```{r}
+get_prob = function(var_name) {
+  tmp = as.data.frame(fit[[var_name]]$prob)
+  colnames(tmp) = gsub("Var1", "contact", colnames(tmp))
+  colnames(tmp) = gsub("Freq", paste("Freq", var_name, sep="."), colnames(tmp))
+  tmp
+}
+
+prob.matrix = get_prob("contact")
+
+for (var in colnames(df.train)[!(colnames(df.train) %in% c("contact", "pdb_id"))]) {
+  prob.matrix = merge(prob.matrix, get_prob(var))
+}
+
+prob.matrix$contact = as.logical(prob.matrix$contact)
+
+prob.matrix$P = apply(prob.matrix[,which(grepl("Freq", colnames(prob.matrix)))], 1,
+                function(x) prod(x))
+
+prob.matrix = prob.matrix %>% 
+  dplyr::select(contact, mhc_type, 
+                tcr_chain, tcr_region, aa_pair, pos_rel_tcr, pos_abs_tcr, pos_rel_antigen, P)
+```
+
+### Example
+
+Compute contact probabilities and merge them with initial dataset
+
+```{r}
+prob.matrix.energy = prob.matrix %>%
+  group_by(mhc_type, 
+           tcr_chain, tcr_region, aa_pair, pos_rel_tcr, pos_abs_tcr, pos_rel_antigen) %>%
+  summarize(P = P[which(contact)] / sum(P))
+
+prob.matrix.energy = merge(prob.matrix.energy, df.e) %>%
+  mutate(E = P * E)
+
+df.m = merge(df, prob.matrix.energy)
+```
+
+```{r}
+df.m.sum = df.m %>%
+  group_by(pdb_id, mhc_type, tcr_chain) %>%
+  summarize(energy = sum(energy), E = sum(E), contact = sum(contact == "TRUE"), P = sum(P))
+
+ggplot(df.m.sum, aes(-energy, -E)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_grid(mhc_type ~ tcr_chain)
+
+ggplot(df.m.sum, aes(contact, P)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_grid(mhc_type ~ tcr_chain)
+```
+
+Write contact probability matrix so it can be used by future generations
+
+```{r}
+prob.matrix.energy.out = prob.matrix.energy
+
+prob.matrix.energy.out$pos_rel_tcr = as.integer(prob.matrix.energy.out$pos_rel_tcr)
+prob.matrix.energy.out$pos_abs_tcr = as.integer(prob.matrix.energy.out$pos_abs_tcr)
+prob.matrix.energy.out$pos_rel_antigen = as.integer(prob.matrix.energy.out$pos_rel_antigen)
+
+write.table(prob.matrix.energy.out, "contact.energies.txt", sep = "\t", quote = F, row.names = F)
+```
+
+Contact probabilities from Bayesian model overlayed by positions of known contacts
+
+```{r}
+df.m.1 = df.m %>%
+  filter(antigen_seq == "GLCTLVAML") %>%
+  droplevels()
+
+ggplot(df.m.1, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = E), cex=1.3) +
+  geom_point(aes(color=contact)) +
+  scale_x_continuous(breaks=0:20) +
+  scale_y_continuous(breaks=0:20) +
+  scale_fill_gradient("P", 
+                      low="#045a8d", high="white") +
+  scale_color_manual(values = c(NA, "red")) +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
+
+
+
