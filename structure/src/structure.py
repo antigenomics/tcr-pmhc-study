@@ -3,6 +3,7 @@ from __future__ import print_function
 import argparse
 import warnings
 import pandas as pd
+import time
 
 from Bio.PDB import *
 from shutil import rmtree
@@ -13,17 +14,17 @@ warnings.filterwarnings("ignore")
 
 parser = argparse.ArgumentParser(description="structure.py")
 parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
-                    help="annotation table ptah")
+                    help="Annotation table path.")
 parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
-                    help="output table path")
+                    help="Output table path.")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
-                    help="temporary folder path")
-parser.add_argument("-m", nargs=1, type=bool, default=False,
-                    help="perform an additional minimization round prior to estimating energies")
-parser.add_argument("-e", nargs=1, type=str, default="total",
-                    help="energy term to compute (Coul/LJ-SR/LR, total or none)")
+                    help="Temporary folder path")
 parser.add_argument("--gmx", action="store_true",
-                    help="use GROMACS to compute energies if passed (don't use it by default)")
+                    help="Compute point energies using GROMACS (very time-consuming!).")
+parser.add_argument("-m", nargs=1, type=bool, default=False,
+                    help="Perform an additional minimization round prior to estimating energies. Only takes effect if --gmx is specified.")
+parser.add_argument("-e", nargs=1, type=str, default="total",
+                    help="Energy term to compute: Coul/LJ-SR/LR, total or none. Only takes effect if --gmx is specified.")
 
 args = parser.parse_args()
 
@@ -64,7 +65,8 @@ col_names = ['pdb_id', 'species',
              'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
              'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
              'pos_tcr', 'pos_antigen',
-             'distance', "energy"]
+             'distance', 'distance_CA', 'distance_CB', 
+             'energy']
 
 with open(output_file, 'w') as f:
     f.write('\t'.join(col_names) + '\n')
@@ -88,7 +90,7 @@ for pdb_id, pdb_group in bypdb:
     # Load PDB file
     pdb_file = pdb_list.retrieve_pdb_file(pdb_id, pdir=pdb_dir)
 
-    print("[", i, "/", table.shape[0], "]")
+    print("[", time.strftime("%c"), i, "/", table.shape[0], "]")
     print(pdb_id, "- preparing for computation")
 
     # Load model from original pdb file
@@ -145,7 +147,7 @@ for pdb_id, pdb_group in bypdb:
                                    tcr_region_residues, antigen_residues, tcr_region_range, antigen_range)
 
         if use_gmx:
-            # Run the following separately for each region as GROMACS will not support >64 energy groups on NxN kernels
+            # Run the following separately for each region as GROMACS will "not support >64 energy groups on NxN kernels"
             pdb_sub_id = pdb_id + '.' + '.'.join(tcr_region_id)
 
             # Assign energy groups, create indexes
@@ -169,7 +171,7 @@ for pdb_id, pdb_group in bypdb:
             if use_gmx:
                 row['energy'] = energies.get((row['idx_tcr'], row['idx_antigen']), float('nan'))
             else:
-                row['energy'] = "NA"
+                row['energy'] = 'NA'
 
         results_by_pdb.extend(distances)
 

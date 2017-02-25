@@ -10,10 +10,10 @@ from collections import OrderedDict
 from os.path import dirname
 from shutil import copyfile
 from subprocess import check_call
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, Vector
 from pdbfixer import PDBFixer
 from simtk.openmm.app import PDBFile
-from Bio.PDB.Vector import rotaxis
+from Bio.PDB.Vector import rotaxis, rotmat
 
 
 def clear_folder(d):
@@ -51,42 +51,85 @@ def get_residues(residues, range):
     return [x for i, x in enumerate(residues) if i in range]
 
 
+def get_calpha_pos(aa):
+    return aa['CA'].get_vector()
+
+
+def calc_coords(tcr_chain, tcr_region, tcr_residues, tcr_range):
+    # CDR start Calpha position
+    start = get_calpha_pos(tcr_residues[0])
+
+    # Cys -> Phe/Trp axis
+    direction = get_calpha_pos(tcr_residues[-1]) - start
+
+    # Matrix that rotates 'direction' to align with X axis
+    r = rotmat(direction, Vector(1, 0, 0))
+    
+    res = [(i, aa_tcr, (get_calpha_pos(aa_tcr) - start).left_multiply(r)) 
+        for i, aa_tcr in enumerate(tcr_residues)]
+
+    # Find 'center of mass' coord in YZ plane
+    cm = Vector(0, 0, 0)
+    
+    for _, _, vec in res:
+        cm = cm + Vector(0, vec[1], vec[2])
+    
+    # Matrix that rotates 'center of mass' to align with Z axis in YZ plane
+    r = rotmat(cm, Vector(0, 0, 1))
+
+    res = [(i, aa_tcr, vec[0], Vector(0, vec[1], vec[2]).left_multiply(r)) 
+        for i, aa_tcr, vec in res]
+
+
+    return [{'tcr_chain': tcr_chain,
+             'tcr_region': tcr_region,
+             'aa_tcr': get_aa_code(aa_tcr),
+             'len_tcr': len(tcr_range),
+             'pos_tcr': i,
+             'x': x,
+             'y': vecYZ[1],
+             'z': vecYZ[2]}
+            for i, aa_tcr, x, vecYZ in res]
+
+
 def get_expected_cb_pos(aa):
-	n = aa['N'].get_vector() 
-	c = aa['C'].get_vector() 
-	ca = aa['CA'].get_vector()
-	# center at origin
-	n = n - ca
-	c = c - ca
-	# find rotation matrix that rotates n -120 degrees along the ca-c vector
-	rot = rotaxis(-math.pi*120.0/180.0, c)
-	# apply rotation to ca-n vector
-	cb_at_origin = n.left_multiply(rot)
-	# put on top of ca atom
-	return (cb_at_origin + ca)
+    n = aa['N'].get_vector() 
+    c = aa['C'].get_vector() 
+    ca = get_calpha_pos(aa)
+    # center at origin
+    n = n - ca
+    c = c - ca
+    # find rotation matrix that rotates n -120 degrees along the ca-c vector
+    rot = rotaxis(-math.pi*120.0/180.0, c)
+    # apply rotation to ca-n vector
+    cb_at_origin = n.left_multiply(rot)
+    # put on top of ca atom
+    return (cb_at_origin + ca)
 
 
 def get_cbeta_pos(aa):
-	if aa.get_resname() == 'GLY':
-		return get_expected_cb_pos(aa)
-	else:
-		ca = aa['CA'].get_vector()
-		try:
-			cb = aa['CB'].get_vector()
-		except KeyError:
-			cb = get_expected_cb_pos(aa)
-		return (ca + (((cb - ca).normalized()) ** 2.4))
+    if aa.get_resname() == 'GLY':
+        return get_expected_cb_pos(aa)
+    else:
+        ca = get_calpha_pos(aa)
+        try:
+            cb = aa['CB'].get_vector()
+        except KeyError:
+            cb = get_expected_cb_pos(aa)
+        return (ca + (((cb - ca).normalized()) ** 2.4))
 
 
-def calc_distance(aa1, aa2, use_cbeta):
-  if use_cbeta:    
-    return (get_cbeta_pos(aa1) - get_cbeta_pos(aa2)).norm()
-  else:
-    return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+def calc_distance(aa1, aa2, dist_type = 'closest_atom'):
+    if dist_type == 'CA':    
+        return (get_calpha_pos(aa1) - get_calpha_pos(aa2)).norm()
+    elif dist_type == 'CB':    
+        return (get_cbeta_pos(aa1) - get_cbeta_pos(aa2)).norm()
+    else: # min dist
+        return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
 
 
-def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range, cbeta_dist=False):
-    # indexes are required to access gromacs data
+def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
+    # indexes are required to access GROMACS data
     return [{'tcr_v_allele': tcr_v_allele,
              'tcr_region': tcr_region,
              'idx_tcr': tcr_chain + '_' + str(aa_tcr.get_id()[1]),
@@ -97,26 +140,11 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
              'len_antigen': len(ag_range),
              'pos_tcr': i,
              'pos_antigen': j,
-             'distance': calc_distance(aa_tcr, aa_ag, cbeta_dist)}
+             'distance': calc_distance(aa_tcr, aa_ag),
+             'distance_CA': calc_distance(aa_tcr, aa_ag, 'CA'),
+             'distance_CB': calc_distance(aa_tcr, aa_ag, 'CB')}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues) if aa_ag.get_resname() not in _skip]
-
-
-def calc_distances_mhc(tcr_chain, mhc_chain, tcr_v_allele, tcr_region, tcr_residues, mhc_residues, tcr_range, mhc_range, cbeta_dist=False):
-    # indexes are required to access gromacs data
-    return [{'tcr_v_allele': tcr_v_allele,
-             'tcr_region': tcr_region,
-             'idx_tcr': tcr_chain + '_' + str(aa_tcr.get_id()[1]),
-             'idx_mhc': mhc_chain + '_' + str(aa_mhc.get_id()[1]),
-             'aa_tcr': get_aa_code(aa_tcr),
-             'aa_mhc': get_aa_code(aa_mhc),
-             'len_tcr': len(tcr_range),
-             'len_mhc': len(mhc_range),
-             'pos_tcr': i,
-             'pos_mhc': j,
-             'distance': calc_distance(aa_tcr, aa_mhc, cbeta_dist)}
-            for i, aa_tcr in enumerate(tcr_residues)
-            for j, aa_mhc in enumerate(mhc_residues) if aa_mhc.get_resname() not in _skip]
 
 
 # PDBfixer
@@ -153,7 +181,7 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
 
 # GROMACS
 
-os.environ['GMX_MAXBACKUP'] = '0'  # suppress shitload of gromacs backups
+os.environ['GMX_MAXBACKUP'] = '0'  # suppress gromacs backups
 
 
 def create_index(pdb_id, pdb_sub_id, keep_idxs):
@@ -229,10 +257,6 @@ def run_single_point(pdb_id, pdb_sub_id, param_template_path, minimized, keep_id
         f.write('\nenergygrps\t= ' + ' '.join(keep_idxs))
 
     suffix = '.m' if minimized else ''
-
-    # Writing the following lines take several days. Funny quotes written by GROMACS to stderr and
-    # mailing list replies containing not a single word except a (broken) link to extremely concise
-    # documentation were really helpful during this process.
 
     # Single-point energies are calculated with -rerun
     # ndx/groups files are used to mark residues of interest and calculate interaction energies
