@@ -12,11 +12,13 @@ from os import chdir, path, makedirs
 
 warnings.filterwarnings("ignore")
 
-parser = argparse.ArgumentParser(description="backbone_coordinates.py\nCompute X/Y/Z coordinates of Calpha atoms of CDR loops. First CDR residue is used as origin, coordinates are rotated so that First-Last CDR residue axis is aligned with X axis and YZ projection of the center of mass is aligned with Z axis.")
+parser = argparse.ArgumentParser(description="backbone_coordinates.py\nCompute X/Y/Z coordinates of Calpha atoms of CDR loops and antigen. C terminal residue is used as origin, coordinates are rotated so that C-N terminus direction is aligned with X axis and YZ projection of the center of mass is aligned with Z axis.")
 parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
                     help="Annotation table path.")
 parser.add_argument("-o", nargs=1, type=str, default="../../result/backbone.txt",
                     help="Output table path.")
+parser.add_argument("-o2", nargs=1, type=str, default="../../result/backbone_ag.txt",
+                    help="Output table path for antigen.")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
                     help="Temporary folder path")
 
@@ -29,6 +31,10 @@ input_file = path.abspath(args.i)
 if type(args.o) is list:
     args.o = args.o[0]
 output_file = path.abspath(args.o)
+
+if type(args.o2) is list:
+    args.o2 = args.o[0]
+output_file2 = path.abspath(args.o2)
 
 chdir(path.dirname(path.realpath(__file__)))
 
@@ -62,6 +68,8 @@ bypdb = table.groupby("pdb_id")
 
 i = 0
 
+results_ag = []
+
 for pdb_id, pdb_group in bypdb:
     # Load PDB file
     pdb_file = pdb_list.retrieve_pdb_file(pdb_id, pdir=pdb_dir)
@@ -75,8 +83,30 @@ for pdb_id, pdb_group in bypdb:
     # Store annotation for entire complex
     pdb_annot = pdb_group.iloc[0]
 
+    # Get and check antigen residues
+    antigen_chain = model[pdb_annot['chain_antigen']]
+    antigen_seq = pdb_annot['antigen_seq']
+    antigen_range = range(len(antigen_seq))
+    antigen_residues = get_residues(antigen_chain, antigen_range)
+    antigen_seq_obs = get_seq(antigen_residues)
+
+    if antigen_seq != antigen_seq_obs:
+        warning("Antigen sequence mismatch (expected observed): ", antigen_seq, antigen_seq_obs,
+                ". Replacing with one from PDB.")
+        pdb_annot['antigen_seq'] = antigen_seq_obs
+
+    print(pdb_id, "- computing positions for", pdb_annot['mhc_type'], ":", antigen_seq_obs)
+
+    # Compute positions and add them to results
+    positions = calc_coords_ag(pdb_id, 
+        pdb_annot['mhc_type'],
+        antigen_residues)
+
+    results_ag.extend(positions)
+
     # Iterate by TCR chain/region (CDR1,2,3)
     byregion = pdb_group.groupby(['chain_tcr', 'tcr_region'])
+
     results_by_pdb = []
     for tcr_region_id, tcr_region_group in byregion:
         # Get and check tcr region residues
@@ -97,7 +127,7 @@ for pdb_id, pdb_group in bypdb:
 
         # Compute positions and add them to results
         positions = calc_coords(tcr_annot['tcr_v_allele'][0:2], tcr_annot['tcr_region'],
-                                tcr_region_residues, tcr_region_range)
+            tcr_region_residues)
 
         for row in positions:
             row.update(tcr_annot.to_dict())
@@ -106,9 +136,11 @@ for pdb_id, pdb_group in bypdb:
 
         i += 1
 
-    # Write selected columns and delete gmx/ content
-    res = pd.DataFrame(results_by_pdb)[col_names]
+    # Write selected columns
+    res = pd.DataFrame(results_by_pdb)[col_names].drop_duplicates()
     res.to_csv(output_file, sep='\t', header=False, index=False, mode='a')
     print("Done")
+
+pd.DataFrame(results_ag).to_csv(output_file2, sep='\t', index=False)
 
 print("Finished processing", table.shape[0], " entries.")

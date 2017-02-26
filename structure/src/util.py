@@ -55,18 +55,18 @@ def get_calpha_pos(aa):
     return aa['CA'].get_vector()
 
 
-def calc_coords(tcr_chain, tcr_region, tcr_residues, tcr_range):
-    # CDR start Calpha position
-    start = get_calpha_pos(tcr_residues[0])
+def rotate(residues):
+    start = get_calpha_pos(residues[0])
+    end = get_calpha_pos(residues[-1])
 
-    # Cys -> Phe/Trp axis
-    direction = get_calpha_pos(tcr_residues[-1]) - start
+    # C terminus -> N terminus axis
+    direction = end - start
 
     # Matrix that rotates 'direction' to align with X axis
     r = rotmat(direction, Vector(1, 0, 0))
     
-    res = [(i, aa_tcr, (get_calpha_pos(aa_tcr) - start).left_multiply(r)) 
-        for i, aa_tcr in enumerate(tcr_residues)]
+    res = [(i, aa, (get_calpha_pos(aa) - start).left_multiply(r)) 
+        for i, aa in enumerate(residues)]
 
     # Find 'center of mass' coord in YZ plane
     cm = Vector(0, 0, 0)
@@ -77,19 +77,35 @@ def calc_coords(tcr_chain, tcr_region, tcr_residues, tcr_range):
     # Matrix that rotates 'center of mass' to align with Z axis in YZ plane
     r = rotmat(cm, Vector(0, 0, 1))
 
-    res = [(i, aa_tcr, vec[0], Vector(0, vec[1], vec[2]).left_multiply(r)) 
-        for i, aa_tcr, vec in res]
+    res = [(i, aa, vec[0], Vector(0, vec[1], vec[2]).left_multiply(r)) 
+        for i, aa, vec in res]
+
+    return [(i, len(res), aa, Vector(x, vecYZ[1], vecYZ[2])) 
+        for i, aa, x, vecYZ in res]
 
 
+def calc_coords(tcr_chain, tcr_region, tcr_residues):
     return [{'tcr_chain': tcr_chain,
              'tcr_region': tcr_region,
              'aa_tcr': get_aa_code(aa_tcr),
-             'len_tcr': len(tcr_range),
+             'len_tcr': l,
              'pos_tcr': i,
-             'x': x,
-             'y': vecYZ[1],
-             'z': vecYZ[2]}
-            for i, aa_tcr, x, vecYZ in res]
+             'x': vec[0],
+             'y': vec[1],
+             'z': vec[2]}
+            for i, l, aa_tcr, vec in rotate(tcr_residues)]
+
+
+def calc_coords_ag(pdb_id, mhc_type, ag_residues):
+    return [{'pdb_id': pdb_id,
+             'mhc_type': mhc_type,
+             'aa_ag': get_aa_code(aa_ag),
+             'len_ag': l,
+             'pos_ag': i,
+             'x': vec[0],
+             'y': vec[1],
+             'z': vec[2]}
+            for i, l, aa_ag, vec in rotate(ag_residues)]
 
 
 def get_expected_cb_pos(aa):
