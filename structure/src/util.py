@@ -65,23 +65,23 @@ def rotate(residues):
     # Matrix that rotates 'direction' to align with X axis
     r = rotmat(direction, Vector(1, 0, 0))
     
-    res = [(i, aa, (get_calpha_pos(aa) - start).left_multiply(r)) 
+    res = [(i, aa, (get_calpha_pos(aa) - start).left_multiply(r), (get_cbeta_pos(aa) - start).left_multiply(r))
         for i, aa in enumerate(residues)]
 
     # Find 'center of mass' coord in YZ plane
     cm = Vector(0, 0, 0)
     
-    for _, _, vec in res:
+    for _, _, vec, _ in res:
         cm = cm + Vector(0, vec[1], vec[2])
     
     # Matrix that rotates 'center of mass' to align with Z axis in YZ plane
     r = rotmat(cm, Vector(0, 0, 1))
 
-    res = [(i, aa, vec[0], Vector(0, vec[1], vec[2]).left_multiply(r)) 
-        for i, aa, vec in res]
+    res = [(i, aa, vec[0], Vector(0, vec[1], vec[2]).left_multiply(r), vec_cb[0], Vector(0, vec_cb[1], vec_cb[2]).left_multiply(r)) 
+        for i, aa, vec, vec_cb in res]
 
-    return [(i, len(res), aa, Vector(x, vecYZ[1], vecYZ[2])) 
-        for i, aa, x, vecYZ in res]
+    return [(i, len(res), aa, Vector(x, vecYZ[1], vecYZ[2]), Vector(x_cb, vecYZ_cb[1], vecYZ_cb[2])) 
+        for i, aa, x, vecYZ, x_cb, vecYZ_cb in res]
 
 
 def calc_coords(tcr_chain, tcr_region, tcr_residues):
@@ -92,8 +92,12 @@ def calc_coords(tcr_chain, tcr_region, tcr_residues):
              'pos_tcr': i,
              'x': vec[0],
              'y': vec[1],
-             'z': vec[2]}
-            for i, l, aa_tcr, vec in rotate(tcr_residues)]
+             'z': vec[2],
+             'x_cb': vec_cb[0],
+             'y_cb': vec_cb[1],
+             'z_cb': vec_cb[2]
+             }
+            for i, l, aa_tcr, vec, vec_cb in rotate(tcr_residues)]
 
 
 def calc_coords_ag(pdb_id, mhc_type, ag_residues):
@@ -104,8 +108,12 @@ def calc_coords_ag(pdb_id, mhc_type, ag_residues):
              'pos_ag': i,
              'x': vec[0],
              'y': vec[1],
-             'z': vec[2]}
-            for i, l, aa_ag, vec in rotate(ag_residues)]
+             'z': vec[2],
+             'x_cb': vec_cb[0],
+             'y_cb': vec_cb[1],
+             'z_cb': vec_cb[2]
+             }
+            for i, l, aa_ag, vec, vec_cb in rotate(ag_residues)]
 
 
 def get_expected_cb_pos(aa):

@@ -51,7 +51,8 @@ col_names = ['pdb_id', 'species',
              'mhc_type', 'mhc_a_allele', 'mhc_b_allele',
              'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
              'aa_tcr', 'len_tcr', 'pos_tcr', 
-             'x', 'y', 'z']
+             'x', 'y', 'z',
+             'x_cb', 'y_cb', 'z_cb']
 
 with open(output_file, 'w') as f:
     f.write('\t'.join(col_names) + '\n')
