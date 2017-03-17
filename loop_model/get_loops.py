@@ -25,6 +25,8 @@ parser.add_argument("-o", nargs=1, type=str, default="loops.txt",
                     help="Output table path.")
 parser.add_argument("-d", nargs=1, type=str, default="data/",
                     help="Path to data folder containing PDB files.")
+parser.add_argument("-r", nargs=1, type=float, default=1.5,
+                    help="RMSD threshold.")
 parser.add_argument("-l", nargs=2, type=int, default=[13,13],
                     help="Min and max loop length.")
 
@@ -32,6 +34,7 @@ args = parser.parse_args()
 backbone_filename = path.abspath(args.i)
 output_filename = path.abspath(args.o)
 data_path = path.abspath(args.d)
+rmsd_threshold = args.r
 cdr3_lens = range(args.l[0], args.l[1] + 1)
 
 ### UTILS
@@ -117,7 +120,7 @@ def calc_coords(pdb_id_kmer, chain_id_kmer, start_kmer, residues):
             for i, l, aa, vec in rotate(residues)]
 
 
-def compute_rmsd(df, kmer, rmsd_threshold = 1.5):
+def compute_rmsd(df, kmer):
     result = pd.merge(df, kmer, on=['len_tcr', 'pos_tcr'], suffixes=['', '_kmer'])
     result['delta'] = (result['x'] - result['x_kmer'])**2 + (result['y'] - result['y_kmer'])**2 + (result['z'] - result['z_kmer'])**2
     rmsd = np.sqrt(result.groupby(['pdb_id', 'tcr_v_allele', 'tcr_region', 'pdb_id_kmer', 'chain_id_kmer', 'start_kmer'])['delta'].mean())
