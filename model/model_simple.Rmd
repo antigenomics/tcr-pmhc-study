@@ -273,7 +273,7 @@ heatmap.2(aa_pair_mat,
           ColSideColors = aa_colors[colnames(aa_pair_mat)],
           trace = "none",
           #breaks = seq(0, 0.2, length.out = 101),
-          col=colorRampPalette(brewer.pal(11, 'YlGnBu'))(100))
+          col=colorRampPalette(brewer.pal(9, 'YlGnBu'))(100))
 ```
 
 > TODO: smooth heatmap using KNN
@@ -281,7 +281,42 @@ heatmap.2(aa_pair_mat,
 Append amino acid distance coefficients
 
 ```{r}
-df.pred.trimmed = df.pred[df.coef.1, on = "aa_pair"][distance_CA <= 15]
+df.pred = df.pred[df.coef.1, on = "aa_pair"]
+df.pred.trimmed = df.pred[distance_CA <= 15] # discard AAs that are too far away for training
+```
+
+## Contact energies
+
+Compute mean GROMACS energies
+
+```{r}
+df$aa_pair = with(df, 
+  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_"))))
+
+df.energies = df[contact == T, .(energy.mean = mean(ifelse(energy > 0 , 0, energy))), by = "aa_pair"]
+df.energies$aa_tcr = str_split_fixed(as.character(df.energies$aa_pair), "_", 2)[, 1]
+df.energies$aa_antigen = str_split_fixed(as.character(df.energies$aa_pair), "_", 2)[, 2]
+
+df.energies.tmp = df.energies
+df.energies.tmp$aa_tcr = df.energies$aa_antigen
+df.energies.tmp$aa_antigen = df.energies$aa_tcr
+
+df.energies = rbind(df.energies, df.energies.tmp)
+
+# transform to matrix and plot heatmap.2
+
+aa_pair_energy_mat = dcast(df.energies, aa_tcr ~ aa_antigen, value.var = "energy.mean", fun.aggregate = mean)
+rownames(aa_pair_energy_mat) = aa_pair_energy_mat$aa_tcr
+aa_pair_energy_mat$aa_tcr = NULL
+aa_pair_energy_mat = as.matrix(aa_pair_energy_mat)
+
+heatmap.2(aa_pair_energy_mat, 
+          hclustfun = function(x) hclust(x, method = "ward.D2"),
+          RowSideColors = aa_colors[rownames(aa_pair_mat)], 
+          ColSideColors = aa_colors[colnames(aa_pair_mat)],
+          trace = "none",
+          breaks = seq(-40, 0, length.out = 101),
+          col=rev(colorRampPalette(brewer.pal(9, 'YlGnBu'))(100)))
 ```
 
 # Building and testing a predictor
@@ -289,14 +324,18 @@ df.pred.trimmed = df.pred[df.coef.1, on = "aa_pair"][distance_CA <= 15]
 Final generalized linear model to fit contacts. 
 
 ```{r}
+# Train on a trimmed dataset
 res_final = glm(contact ~ distance_CA_mean + coef, family = binomial(), data = df.pred.trimmed)
 
 summary(res_final)
 
 df.pred.trimmed$p = predict(res_final, df.pred.trimmed, type="response")
+df.pred$p = predict(res_final, df.pred, type="response")
+
+df.pred = df.pred[df.energies, on = .(aa_tcr, aa_antigen)]
 ```
 
-> TODO overlay GROMACS energies
+
 
 ## Check accuracy
 
@@ -324,6 +363,10 @@ ggplot(df.pred.contsum, aes(x=pred_contacts, y=total_contacts, color = tcr_regio
   scale_color_brewer(palette = "Set1") +
   facet_wrap(~len_tcr) +
   theme_bw()
+
+lfit = lm(total_contacts ~ pred_contacts + len_tcr + tcr_region - 1, df.pred.contsum)
+summary(lfit)
+anova(lfit)
 ```
 
 ### Examples from the train data
@@ -331,7 +374,7 @@ ggplot(df.pred.contsum, aes(x=pred_contacts, y=total_contacts, color = tcr_regio
 Check for a couple of antigens, GLCTLVAML
 
 ```{r}
-df.pred.glc = df.pred.trimmed %>%
+df.pred.glc = df.pred %>%
   filter(antigen_seq == "GLCTLVAML") %>%
   droplevels()
 
@@ -352,7 +395,7 @@ ggplot(df.pred.glc, aes(x=pos_tcr, y=pos_antigen)) +
 and LLFGYPVAV
 
 ```{r}
-df.pred.llf = df.pred.trimmed %>%
+df.pred.llf = df.pred %>%
   filter(antigen_seq == "LLFGYPVAV") %>%
   droplevels()
 
@@ -402,8 +445,10 @@ compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq,
   
   df.pairs$id = id # ! id can be anything to group the complex, e.g. clonotype id in sample
     
-  merge(df.pairs %>% select(id, mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_antigen, aa_tcr, aa_pair), 
-        df.pred.trimmed %>% select(mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_pair, p))
+  df.res = merge(df.pairs %>% select(id, mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_antigen, aa_tcr, aa_pair), 
+        df.pred %>% select(mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_pair, p, energy.mean), all.x = T)
+  
+  df.res
 }
 ```
 
@@ -413,7 +458,7 @@ cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF"
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","GLGGGGGGV","Mock"))
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATALPYGYIF","ILAKFLHWL", "Enhanced"))
 
-print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(ifelse(p < 0.1, 0, p), na.rm = T)))
+print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p, na.rm = T), energy = sum(p * energy.mean, na.rm = T)))
 
 ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
   geom_tile(fill=NA) +
@@ -421,6 +466,15 @@ ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
   #scale_x_continuous(breaks=0:20) +
   #scale_y_continuous(breaks=0:20) +
   scale_fill_gradientn(colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p * energy.mean), cex=2) +
+  #scale_x_continuous(breaks=0:20) +
+  #scale_y_continuous(breaks=0:20) +
+  scale_fill_gradientn(colors=rev(colorRampPalette(brewer.pal(9, 'YlGnBu'))(32))) +
   facet_grid(id~., scales="free", space="free") +
   theme_bw()
 ```
