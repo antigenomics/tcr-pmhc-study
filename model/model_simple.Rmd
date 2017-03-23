@@ -1,15 +1,21 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "A naive TCR:pMHC interaction model"
+
+output:
+  html_document:
+    code_folding: hide
 ---
 
 ```{r}
+library(data.table)
 library(ggplot2)
 library(reshape2)
 library(dplyr)
 library(ggbeeswarm)
 library(RColorBrewer)
 library(pROC)
+library(stringr)
+library(gplots)
 ```
 
 
@@ -17,7 +23,9 @@ library(pROC)
 df = fread("../result/structure.txt", header=T, sep="\t")[tcr_region %in% c("CDR1", "CDR2", "CDR3")]
   
 df$tcr_chain = as.factor(substr(as.character(df$tcr_v_allele), 1, 3))
-df$contact = df$distance <= 4.5 # We have a ref for this :)
+df$contact = df$distance <= 4.5 
+df$aa_pair = with(df, 
+  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_"))))
 
 summary(df)
 ```
@@ -149,38 +157,42 @@ df.pred$pos_antigen_c = with(df.pred, pos_antigen - round(len_antigen/2))
 Mean Calpha distances for centered coordinates
 
 ```{r}
-df.ca.mean = df.pred[,.(distance_CA_mean = mean(distance_CA)), 
+df.ca.mean = df.pred[,.(distance_CA.m = mean(distance_CA)), 
                         by=.(tcr_chain, tcr_region, mhc_type, pos_tcr_c, pos_antigen_c)]
 
-ggplot(df.ca.mean, aes(x=pos_tcr_c, y=pos_antigen_c, fill=distance_CA_mean)) +
+ggplot(df.ca.mean, aes(x=pos_tcr_c, y=pos_antigen_c, fill=distance_CA.m)) +
   geom_tile() +
   geom_vline(xintercept = 0, linetype = "dashed", color = "white") + 
   geom_hline(yintercept = 0, linetype = "dashed", color = "white") + 
   facet_grid(mhc_type~tcr_chain+tcr_region) +
   scale_x_continuous(limits=c(-10,10)) + 
   scale_y_continuous(limits=c(-10,10)) + 
-  scale_fill_gradientn(colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(5,20)) +
+  scale_fill_gradientn(colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(5, 20)) +
   theme_bw() + 
   theme(panel.background = element_rect(fill = 'grey50'),
         panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 ```
 
-> TODO: some smoothing should be applied here
-
 ### Checking the model
 
-```{r}
-df.pred = df.pred[df.ca.mean, on = .(tcr_chain, tcr_region, mhc_type, pos_tcr_c, pos_antigen_c)]
-```
+Add mean distance values
 
 ```{r}
-ggplot(df.pred, aes(x=round(distance_CA_mean), group = round(distance_CA_mean), y = distance_CA)) +
+df.pred = df.pred[as.data.table(df.ca.mean), on = .(tcr_chain, tcr_region, mhc_type, pos_tcr_c, pos_antigen_c)]
+```
+
+Compare to true Calpha distance values
+
+```{r}
+ggplot(df.pred, aes(x=round(distance_CA.m), group = round(distance_CA.m), y = distance_CA)) +
   geom_boxplot() +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
   scale_x_continuous(limits=c(5,20)) +
   scale_y_continuous(limits=c(5,20)) +
   facet_grid(mhc_type~tcr_chain+tcr_region) +
   theme_bw()
+
+summary(lm(distance_CA ~ distance_CA.m, df.pred))
 ```
 
 Plot distance distribution for contacts and non-contacts, for real and estimated distances:
@@ -193,7 +205,7 @@ ggplot(df.pred, aes(x = distance_CA, fill = contact)) +
   scale_fill_brewer(palette = "Set1") +
   theme_bw()
 
-ggplot(df.pred, aes(x = distance_CA_mean, fill = contact)) +
+ggplot(df.pred, aes(x = distance_CA.m, fill = contact)) +
   geom_histogram(binwidth = 1) +
   facet_grid(mhc_type~tcr_chain+tcr_region, scales="free_y") +
   scale_x_continuous(limits=c(0,20))+
@@ -203,14 +215,7 @@ ggplot(df.pred, aes(x = distance_CA_mean, fill = contact)) +
 
 ## Amino acid preferences and Calpha distance
 
-Operate with amino acid pairs, ignoring which one is in TCR and which one comes from antigen
-
-```{r}
-df.pred$aa_pair = with(df.pred, 
-  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_"))))
-```
-
-Using a generalized linear model to fit contacts. 
+Using a generalized linear model to fit contacts, operate with amino acid pairs, ignoring which one is in TCR and which one comes from antigen. 
 
 ```{r}
 res = glm(contact ~ distance_CA + aa_pair + 0, family = binomial(), data = df.pred)
@@ -272,8 +277,8 @@ heatmap.2(aa_pair_mat,
           RowSideColors = aa_colors[rownames(aa_pair_mat)], 
           ColSideColors = aa_colors[colnames(aa_pair_mat)],
           trace = "none",
-          #breaks = seq(0, 0.2, length.out = 101),
-          col=colorRampPalette(brewer.pal(9, 'YlGnBu'))(100))
+          #breaks = seq(-16, -7, length.out = 101),
+          col=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32))
 ```
 
 > TODO: smooth heatmap using KNN
@@ -290,9 +295,6 @@ df.pred.trimmed = df.pred[distance_CA <= 15] # discard AAs that are too far away
 Compute mean GROMACS energies
 
 ```{r}
-df$aa_pair = with(df, 
-  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_"))))
-
 df.energies = df[contact == T, .(energy.mean = mean(ifelse(energy > 0 , 0, energy))), by = "aa_pair"]
 df.energies$aa_tcr = str_split_fixed(as.character(df.energies$aa_pair), "_", 2)[, 1]
 df.energies$aa_antigen = str_split_fixed(as.character(df.energies$aa_pair), "_", 2)[, 2]
@@ -315,8 +317,8 @@ heatmap.2(aa_pair_energy_mat,
           RowSideColors = aa_colors[rownames(aa_pair_mat)], 
           ColSideColors = aa_colors[colnames(aa_pair_mat)],
           trace = "none",
-          breaks = seq(-40, 0, length.out = 101),
-          col=rev(colorRampPalette(brewer.pal(9, 'YlGnBu'))(100)))
+          breaks = seq(-40, 2, length.out = 33),
+          col=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32)))
 ```
 
 # Building and testing a predictor
@@ -325,7 +327,7 @@ Final generalized linear model to fit contacts.
 
 ```{r}
 # Train on a trimmed dataset
-res_final = glm(contact ~ distance_CA_mean + coef, family = binomial(), data = df.pred.trimmed)
+res_final = glm(contact ~ distance_CA.m + coef, family = binomial(), data = df.pred.trimmed)
 
 summary(res_final)
 
@@ -413,7 +415,9 @@ ggplot(df.pred.llf, aes(x=pos_tcr, y=pos_antigen)) +
   theme_bw()
 ```
 
-### More examples
+# Independent validation
+
+Computing contact map from fitted model for a specified TCR:pMHC setup
 
 ```{r}
 compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq, id = "tmp") {
@@ -446,11 +450,17 @@ compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq,
   df.pairs$id = id # ! id can be anything to group the complex, e.g. clonotype id in sample
     
   df.res = merge(df.pairs %>% select(id, mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_antigen, aa_tcr, aa_pair), 
-        df.pred %>% select(mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_pair, p, energy.mean), all.x = T)
+        df.pred %>% select(mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_pair, p, energy.mean), all.x = T) %>%
+        unique()
+  
+  df.res$p[is.na(df.res$p)] = 0
+  df.res$energy.mean[is.na(df.res$energy.mean)] = 0
   
   df.res
 }
 ```
+
+Testing - example 1 https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2681418/ - engeneered peptide
 
 ```{r}
 cm.tmp = compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","ILAKFLHWL","WT")
@@ -458,23 +468,115 @@ cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF"
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","GLGGGGGGV","Mock"))
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATALPYGYIF","ILAKFLHWL", "Enhanced"))
 
-print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p, na.rm = T), energy = sum(p * energy.mean, na.rm = T)))
+print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
 
 ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
   geom_tile(fill=NA) +
   geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=2) +
-  #scale_x_continuous(breaks=0:20) +
-  #scale_y_continuous(breaks=0:20) +
-  scale_fill_gradientn(colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("P", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
   facet_grid(id~., scales="free", space="free") +
   theme_bw()
 
 ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
   geom_tile(fill=NA) +
   geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p * energy.mean), cex=2) +
-  #scale_x_continuous(breaks=0:20) +
-  #scale_y_continuous(breaks=0:20) +
-  scale_fill_gradientn(colors=rev(colorRampPalette(brewer.pal(9, 'YlGnBu'))(32))) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("E", colors=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32))) +
   facet_grid(id~., scales="free", space="free") +
   theme_bw()
 ```
+
+Testing - example 2 http://www.nature.com/articles/ncomms6223, https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3049343/ - high affinity Tax mutant
+
+```{r}
+cm.tmp = compute_contact_map("MHCI","TRB","CDR3","CASRPGLAGGRPEQYF","LLFGYPVYV","WT")
+cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRB","CDR3","CASRPGLMSAQPEQLF","LLFGYPVYV","High affinity"))
+
+print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
+
+ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("P", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p * energy.mean), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("E", colors=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32))) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+```
+
+Testing - example 3 same as above - comparing Tax specific vs Tax and MART specific vs MART + cross-comparison. We compare CDR3beta of A6 (wild-type Tax-specific variant) and a MART-specific TCR derived from A6 by direct evolution.
+
+```{r}
+cm.tmp.1 = compute_contact_map("MHCI","TRB","CDR3","CASRPGLAGGRPEQYF","LLFGYPVYV","Tax-tcr:Tax")
+cm.tmp.1 = rbind(cm.tmp.1, compute_contact_map("MHCI","TRB","CDR3","CASRPGLAGGRPEQYF","AAGIGILTV","Tax-tcr:MART"))
+cm.tmp.1 = rbind(cm.tmp.1, compute_contact_map("MHCI","TRB","CDR3","CASRPGWMAGGVELYF","LLFGYPVYV","MART-tcr:Tax"))
+cm.tmp.1 = rbind(cm.tmp.1, compute_contact_map("MHCI","TRB","CDR3","CASRPGWMAGGVELYF","AAGIGILTV","MART-tcr:MART"))
+
+print(cm.tmp.1 %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
+
+ggplot(cm.tmp.1, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("P", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+ggplot(cm.tmp.1, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p * energy.mean), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("E", colors=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32))) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+```
+
+Same as above for alpha chains
+
+```{r}
+cm.tmp.2 = compute_contact_map("MHCI","TRA","CDR3","CAVVVTTDSWGKLQF","LLFGYPVYV","Tax-tcr:Tax")
+cm.tmp.2 = rbind(cm.tmp.2, compute_contact_map("MHCI","TRA","CDR3","CAVVVTTDSWGKLQF","AAGIGILTV","Tax-tcr:MART"))
+cm.tmp.2 = rbind(cm.tmp.2, compute_contact_map("MHCI","TRA","CDR3","CAVVVTKYSWGKLQF","LLFGYPVYV","MART-tcr:Tax"))
+cm.tmp.2 = rbind(cm.tmp.2, compute_contact_map("MHCI","TRA","CDR3","CAVVVTKYSWGKLQF","AAGIGILTV","MART-tcr:MART"))
+
+print(cm.tmp.2 %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
+
+ggplot(cm.tmp.2, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("P", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+ggplot(cm.tmp.2, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p * energy.mean), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("E", colors=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32))) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+```
+
+Summarize alpha and beta chains
+
+```{r}
+print(rbind(cm.tmp.1, cm.tmp.2) %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
+```
+
