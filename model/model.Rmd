@@ -334,6 +334,9 @@ calc_dist = function(x_tcr, y_tcr, z_tcr, x_ag, y_ag, z_ag, x_tcr_max, x_ag_max,
 Optimization goes here
 
 ```{r}
+TMP = merge(df.ag, df.tcr, by = c("pdb_id", "mhc_type"), suffixes = c("_tcr", "_ag"))
+TMP = merge(TMP, df.master)
+
 params_fitted_orientation = data.frame()
 
 df.distest.summary = df.master %>%
@@ -347,17 +350,20 @@ for (t in c("CDR1", "CDR2", "CDR3")) {
     for (m in c("MHCI", "MHCII")) {
       print(paste("Fitting orientation for", t, ch, m))
       
-      df.fit = df.distest %>%
+      df.fit = TMP %>% #df.distest %>%
         filter(tcr_region == t, tcr_chain == ch, mhc_type == m) %>%
-        dplyr::select(pdb_id, pos_tcr, len_tcr, pos_antigen, len_antigen, distance_CA)
+        dplyr::select(pdb_id, pos_tcr, len_tcr, pos_ag, len_ag,
+                      x_tcr, y_tcr, z_tcr, x_ag, y_ag, z_ag,
+                      #pos_antigen, len_antigen,
+                      distance_CA)
       
-      df.fit$x_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "x")
-      df.fit$y_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "y")
-      df.fit$z_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "z")
+      #df.fit$x_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "x")
+      #df.fit$y_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "y")
+      #df.fit$z_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "z")
       
-      df.fit$x_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "x")
-      df.fit$y_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "y")
-      df.fit$z_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "z")
+      #df.fit$x_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "x")
+      #df.fit$y_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "y")
+      #df.fit$z_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "z")
       
       df.fit = df.fit %>%
         group_by(pdb_id) %>%
@@ -446,27 +452,30 @@ ggplot(params_fitted_orientation1, aes(x = roll, y = height, color = tcr_region)
 General purpose function for computing distances
 
 ```{r}
+
 compute_distance_slave = function(pdb_id, pos_tcr, len_tcr, pos_antigen, len_antigen, tcr_chain, tcr_region, mhc_type) {
   tc = as.character(tcr_chain[1])
   tr = as.character(tcr_region[1])
   mt = as.character(mhc_type[1])
   
-  x_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "x")
-  y_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "y")
-  z_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "z")
+  
+  
+  #x_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "x")
+  #y_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "y")
+  #z_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "z")
       
-  x_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "x")
-  y_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "y")
-  z_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "z")
+  #x_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "x")
+  #y_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "y")
+  #z_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "z")
       
-  max_x = data.frame(pdb_id, x_tcr, x_ag) %>%
+  max_x = data.frame(pdb_id, TMP$x_tcr, z$x_ag) %>%
     group_by(pdb_id) %>%
     mutate(x_tcr_max = max(x_tcr), x_ag_max = max(x_ag))
   
   params = (params_fitted_orientation %>%
     filter(tcr_chain == tc & tcr_region == tr & mhc_type == mt))$params
       
-  calc_dist(x_tcr, y_tcr, z_tcr, x_ag, y_ag, z_ag, max_x$x_tcr_max, max_x$x_ag_max, params)
+  calc_dist(z$x_tcr, z$y_tcr, z$z_tcr, z$x_ag, z$y_ag, z$z_ag, max_x$x_tcr_max, max_x$x_ag_max, params)
 }
 
 compute_distances_master = function(data) {
