@@ -7,6 +7,7 @@ output:
 ---
 
 ```{r}
+
 library(data.table)
 library(ggplot2)
 library(reshape2)
@@ -16,6 +17,7 @@ library(RColorBrewer)
 library(pROC)
 library(stringr)
 library(gplots)
+
 ```
 
 
@@ -437,18 +439,24 @@ imputed = impute_knn_mean(aa_data$X[aa_data$train[[1]], ],
                           aa_data$X_test, .k = 5)[[3]]
 
 aa_pair_mat_imp = aa_pair_mat
+aa_pair_vec = 
 for (r in 1:nrow(test_data)) {
   aa_pair_mat_imp[test_data[r,1], test_data[r,2]] = imputed[r]
   aa_pair_mat_imp[test_data[r,2], test_data[r,1]] = imputed[r]
+  
   ind = intersect(which(df.aa.coef[,2] == test_data[r,1]), which(df.aa.coef[,3] == test_data[r,2]))
   if (length(ind) == 0) {
     ind = intersect(which(df.aa.coef[,2] == test_data[r,2]), which(df.aa.coef[,3] == test_data[r,1]))
   }
-  if (!is.na(df.aa.coef[ind, 1])) {
-    cat("error!!\n")
-    df.aa.coef[ind, 1] = imputed[r]
-  }
+  df.aa.coef[ind, 1] = imputed[r]
 }
+
+# update the df.aa.coef.diag
+df.aa.coef.diag = df.aa.coef
+df.aa.coef.diag$aa_pair = with(df.aa.coef.diag, 
+  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_")))) 
+df.aa.coef.diag = df.aa.coef.diag %>% select(aa_pair, coef)
+df.aa.coef.diag = df.aa.coef.diag[!duplicated(df.aa.coef.diag[,1]),]
 
 p2 = heatmap.2(aa_pair_mat_imp, 
           hclustfun = function(x) hclust(x, method = "ward.D2"),
@@ -542,6 +550,8 @@ for (r in 1:nrow(test_data)) {
   } else {
     if (!is.na(df.energies[[ind, 2]])) {
       cat("error!!\n")
+      df.energies[[ind, 2]] = imputed[r]
+    } else {
       df.energies[[ind, 2]] = imputed[r]
     }
   }
