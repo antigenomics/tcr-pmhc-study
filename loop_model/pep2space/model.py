@@ -109,7 +109,7 @@ def train_model(max_pos, n_clust, coord, layers,
         
         model = model_fun((20*(right_window+left_window+1),), 1, layers)
 
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=0, min_lr=0.0005)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=1, min_lr=0.0005)
         
         if n_clust == 0:
             hist_obj = model.fit(X_can, y_can, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
