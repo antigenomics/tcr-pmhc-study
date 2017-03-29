@@ -50,6 +50,8 @@ df.contact.sum = df.contact.sum[pdb_id %in% df.contact.sum.pdb$pdb_id]
 
 ggplot(df.contact.sum, aes(x=tcr_region, group = tcr_region, y = contacts, fill = tcr_region)) +
   geom_violin() +
+  scale_fill_brewer(guide = F, "TCR region", palette = "Set1") +
+  xlab("") + ylab("Antigen contacts (closest atom distance < 4.5Å)") +
   facet_grid(tcr_chain~mhc_type) +
   theme_bw()
 
@@ -57,6 +59,7 @@ a = aov(contacts~tcr_chain*tcr_region*mhc_type, df.contact.sum)
 anova(a)
 
 TukeyHSD(a, "tcr_region")
+TukeyHSD(a, "tcr_chain")
 TukeyHSD(a, "tcr_chain:tcr_region")
 ```
 
@@ -330,10 +333,18 @@ contact_glm = glm(contact ~ distance_CA.m + coef, family = binomial(), data = df
 
 summary(contact_glm)
 
+print(contact_glm$coefficients)
+
 df.pred.trimmed$p = predict(contact_glm, df.pred.trimmed, type="response")
 df.pred$p = predict(contact_glm, df.pred, type="response")
 
 df.pred = df.pred[df.energies, on = .(aa_tcr, aa_antigen)]
+
+#pp = -with(df.pred, contact_glm$coefficients["(Intercept)"] + 
+#  contact_glm$coefficients["distance_CA.m"] * distance_CA.m + 
+# contact_glm$coefficients["coef"] * coef)
+#pp = 1/(1+exp(pp))
+#z = df.pred$p - pp
 ```
 
 Save model for further evaluation:
