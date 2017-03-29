@@ -1,12 +1,13 @@
 ---
 title: "A naive TCR:pMHC interaction model"
 output:
-  pdf_document: default
   html_document:
     code_folding: hide
+  pdf_document: default
 ---
 
 ```{r}
+
 library(data.table)
 library(ggplot2)
 library(reshape2)
@@ -16,6 +17,7 @@ library(RColorBrewer)
 library(pROC)
 library(stringr)
 library(gplots)
+
 ```
 
 
@@ -226,7 +228,7 @@ res = glm(contact ~ distance_CA + aa_pair + 0, family = binomial(), data = df.pr
 summary(res)
 ```
 
-Explore results
+# Explore results
 
 ```{r}
 coef = res$coefficients
@@ -283,8 +285,228 @@ heatmap.2(aa_pair_mat,
           col=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32))
 ```
 
-> TODO: smooth heatmap using KNN
+### Generate data for the imputation and EDA
 
+```{r, fig.width=10}
+kidera = t(data.frame(lapply(strsplit("A,-1.56,-1.67,-0.97,-0.27,-0.93,-0.78,-0.2,-0.08,0.21,-0.48;R,0.22,1.27,1.37,1.87,-1.7,0.46,0.92,-0.39,0.23,0.93;N,1.14,-0.07,-0.12,0.81,0.18,0.37,-0.09,1.23,1.1,-1.73;D,0.58,-0.22,-1.58,0.81,-0.92,0.15,-1.52,0.47,0.76,0.7;C,0.12,-0.89,0.45,-1.05,-0.71,2.41,1.52,-0.69,1.13,1.1;Q,-0.47,0.24,0.07,1.1,1.1,0.59,0.84,-0.71,-0.03,-2.33;E,-1.45,0.19,-1.61,1.17,-1.31,0.4,0.04,0.38,-0.35,-0.12;G,1.46,-1.96,-0.23,-0.16,0.1,-0.11,1.32,2.36,-1.66,0.46;H,-0.41,0.52,-0.28,0.28,1.61,1.01,-1.85,0.47,1.13,1.63;I,-0.73,-0.16,1.79,-0.77,-0.54,0.03,-0.83,0.51,0.66,-1.78;L,-1.04,0,-0.24,-1.1,-0.55,-2.05,0.96,-0.76,0.45,0.93;K,-0.34,0.82,-0.23,1.7,1.54,-1.62,1.15,-0.08,-0.48,0.6;M,-1.4,0.18,-0.42,-0.73,2,1.52,0.26,0.11,-1.27,0.27;F,-0.21,0.98,-0.36,-1.43,0.22,-0.81,0.67,1.1,1.71,-0.44;P,2.06,-0.33,-1.15,-0.75,0.88,-0.45,0.3,-2.3,0.74,-0.28;S,0.81,-1.08,0.16,0.42,-0.21,-0.43,-1.89,-1.15,-0.97,-0.23;T,0.26,-0.7,1.21,0.63,-0.1,0.21,0.24,-1.15,-0.56,0.19;W,0.3,2.1,-0.72,-1.57,-1.16,0.57,-0.48,-0.4,-2.3,-0.6;Y,1.38,1.48,0.8,-0.56,0,-0.68,-0.31,1.03,-0.05,0.53;V,-0.74,-0.71,2.04,-0.4,0.5,-0.81,-1.07,0.06,-0.46,0.65", ";")[[1]], function (x) { strsplit(x, ",")[[1]] } ))); kidera = data.frame(kidera[,1], apply(kidera[, 2:11], 2, as.numeric)); kidera[,1] = as.character(kidera[,1]); row.names(kidera) = kidera[,1]; names(kidera) = c("amino.acid", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10")
+
+kidera[,2:ncol(kidera)] = lapply(kidera[,2:ncol(kidera)], function (col) (col - min(col)) / (max(col) - min(col)))
+row.names(kidera) = kidera$amino.acid
+kidera = as.matrix(kidera[,-1])
+
+
+generate_data <- function (.mat, .train_size = .7, .cv = 10, .seed = 42) {
+  melted = melt(.mat)[melt(upper.tri(.mat, diag = T))[,3],]
+  melted[,1] = as.character(melted[,1])
+  melted[,2] = as.character(melted[,2])
+  train_data = melted[!is.na(melted[,3]), ]
+  test_data = melted[is.na(melted[,3]), ]
+  
+  med = median(train_data[,3])
+  
+  hi_logic = train_data[,3] >= med
+  lo_logic = train_data[,3] < med
+  
+  train_size = round(.train_size * nrow(train_data))
+  
+  train_inds = list()
+  val_inds = list()
+  
+  set.seed(.seed)
+  for (i in 1:.cv) {
+    hi_inds = sample(which(hi_logic), train_size / 2, F)
+    lo_inds = sample(which(lo_logic), train_size / 2, F)
+    train_inds[[i]] = sample(c(hi_inds, lo_inds))
+    
+    val_inds[[i]] = sample(c(setdiff(which(hi_logic), hi_inds), setdiff(which(lo_logic), lo_inds)))
+  }
+  
+  res = matrix(0, nrow(train_data), 10)
+  for (i in 1:nrow(res)) {
+    res[i,] = (kidera[train_data[i,1], ] + kidera[train_data[i,2], ]) / 2
+  }
+  row.names(res) = paste0(train_data[,1], train_data[,2])
+  
+  res_tst = matrix(0, nrow(test_data), 10)
+  for (i in 1:nrow(res_tst)) {
+    res_tst[i,] = (kidera[test_data[i,1], ] + kidera[test_data[i,2], ]) / 2
+  }
+  row.names(res_tst) = paste0(test_data[,1], test_data[,2])
+  
+  list(X = res, y = train_data[,3], X_test = res_tst, train = train_inds, val = val_inds)
+}
+
+
+aa_data = generate_data(aa_pair_mat, .cv = 10)
+
+suppressWarnings( {
+  ps = lapply(1:10, function (i) { qplot(aa_data$X[,i], aa_data$y, geom = c("point", "smooth"), method="lm") + theme_bw() })
+  })
+summary(lm(aa_data$y ~ aa_data$X))
+do.call(gridExtra::grid.arrange, c(ps, list(ncol = 5)))
+```
+
+### Impute the missing values
+```{r}
+impute_knn_mean <- function (X_train, y_train, X_val, y_val, X_test, .k) {
+  res_tr = sapply(1:nrow(X_train), function (row_i) { 
+    tmp = sapply(1:nrow(X_train), function (row_j) {
+      if (row_i != row_j) { sqrt(sum((X_train[row_i, ] - X_train[row_j, ]) ^ 2))
+      } 
+      else { 20 }
+    })
+    mean(y_train[order(tmp)[1:.k]])
+  })
+  
+  res_val = sapply(1:nrow(X_val), function (row_i) { 
+    tmp = sapply(1:nrow(X_train), function (row_j) {
+      sqrt(sum((X_val[row_i, ] - X_train[row_j, ]) ^ 2))
+    })
+    mean(y_train[order(tmp)[1:.k]])
+  })
+  
+  merged = rbind(X_train, X_val)
+  merged_y = c(y_train, y_val)
+  imp_tst = sapply(1:nrow(X_test), function (row_i) { 
+    tmp = sapply(1:nrow(merged), function (row_j) {
+      sqrt(sum((X_test[row_i, ] - merged[row_j, ]) ^ 2))
+    })
+    mean(merged_y[order(tmp)[1:.k]])
+  })
+  
+  list(res_tr, res_val, imp_tst)
+}
+
+
+impute_knn_dist <- function (X_train, y_train, X_val, y_val, X_test, .k) {
+  res_tr = sapply(1:nrow(X_train), function (row_i) { 
+    tmp = sapply(1:nrow(X_train), function (row_j) {
+      if (row_i != row_j) { sqrt(sum((X_train[row_i, ] - X_train[row_j, ]) ^ 2)) } 
+      else { 20 }
+    })
+    mean((min(tmp[order(tmp)[1:.k]]) / tmp[order(tmp)[1:.k]]) ^ 2 * y_train[order(tmp)[1:.k]])
+  })
+  
+  res_val = sapply(1:nrow(X_val), function (row_i) { 
+    tmp = sapply(1:nrow(X_train), function (row_j) {
+      sqrt(sum((X_val[row_i, ] - X_train[row_j, ]) ^ 2))
+    })
+    mean((min(tmp[order(tmp)[1:.k]]) / tmp[order(tmp)[1:.k]]) ^ 3 * y_train[order(tmp)[1:.k]])
+  })
+  
+  merged = rbind(X_train, X_val)
+  merged_y = c(y_train, y_val)
+  imp_tst = sapply(1:nrow(X_test), function (row_i) { 
+    tmp = sapply(1:nrow(merged), function (row_j) {
+      sqrt(sum((X_test[row_i, ] - merged[row_j, ]) ^ 2))
+    })
+    mean(merged_y[order(tmp)[1:.k]])
+  })
+  
+  list(res_tr, res_val, imp_tst)
+}
+
+
+impute_reg <- function (X_train, y_train, X_val, y_val, X_test) {
+  model = lm(aa_data$y ~ ., data = data.frame(aa_data$X))
+  
+  X_df = data.frame(X_train)
+  res_tr = sapply(1:nrow(X_train), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  X_df = data.frame(X_val)
+  res_val = sapply(1:nrow(X_val), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  merged = rbind(X_train, X_val)
+  merged_y = c(y_train, y_val)
+  X_df = data.frame(merged)
+  model = lm(merged_y ~ ., data = X_df)
+  imp_tst = sapply(1:nrow(X_test), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  list(res_tr, res_val, imp_tst)
+}
+
+
+eval_model <- function (.data, .fun, ...) {
+  .scorer <- function (ytrue, ypred) {
+    sqrt(mean((ytrue - ypred) ^ 2))
+  }
+  
+  res_tr = c()
+  res_val = c()
+  for (i in 1:length(.data$train)) {
+    tmp = .fun(.data$X[.data$train[[i]], ], 
+               .data$y[.data$train[[i]]], 
+               .data$X[.data$val[[i]], ], 
+               .data$y[.data$val[[i]]], 
+               .data$X_test, ...)
+    res_tr  = c(res_tr,  .scorer(tmp[[1]], .data$y[.data$train[[i]]]))
+    res_val = c(res_val, .scorer(tmp[[2]], .data$y[.data$val[[i]]]))
+  }
+  list(tr = res_tr, val = res_val)
+}
+
+imp_res = list()
+imp_res[["mean_1"]] = eval_model(aa_data, impute_knn_mean, .k = 1)
+imp_res[["mean_3"]] = eval_model(aa_data, impute_knn_mean, .k = 3)
+imp_res[["mean_5"]] = eval_model(aa_data, impute_knn_mean, .k = 5)
+imp_res[["dist_1"]] = eval_model(aa_data, impute_knn_dist, .k = 1)
+imp_res[["dist_3"]] = eval_model(aa_data, impute_knn_dist, .k = 3)
+imp_res[["dist_5"]] = eval_model(aa_data, impute_knn_dist, .k = 5)
+imp_res[["reg"]] = eval_model(aa_data, impute_reg)
+imp_res = melt(imp_res)
+colnames(imp_res) = c("val", "data", "app")
+qplot(x = data, y = val, fill = app, data = imp_res, geom = "boxplot") + theme_bw()
+```
+
+```{r}
+melted = melt(aa_pair_mat)[melt(upper.tri(aa_pair_mat, T))[,3],]
+melted[,1] = as.character(melted[,1])
+melted[,2] = as.character(melted[,2])
+test_data = melted[is.na(melted[,3]), ]
+
+imputed = impute_reg(aa_data$X[aa_data$train[[1]], ],
+                          aa_data$y[aa_data$train[[1]]],
+                          aa_data$X[aa_data$val[[1]], ],
+                          aa_data$y[aa_data$val[[1]]],
+                          aa_data$X_test)[[3]]
+
+aa_pair_mat_imp = aa_pair_mat
+aa_pair_vec = 
+for (r in 1:nrow(test_data)) {
+  aa_pair_mat_imp[test_data[r,1], test_data[r,2]] = imputed[r]
+  aa_pair_mat_imp[test_data[r,2], test_data[r,1]] = imputed[r]
+  
+  ind = intersect(which(df.aa.coef[,2] == test_data[r,1]), which(df.aa.coef[,3] == test_data[r,2]))
+  if (length(ind) == 0) {
+    ind = intersect(which(df.aa.coef[,2] == test_data[r,2]), which(df.aa.coef[,3] == test_data[r,1]))
+  }
+  df.aa.coef[ind, 1] = imputed[r]
+}
+
+# update the df.aa.coef.diag
+df.aa.coef.diag = df.aa.coef
+df.aa.coef.diag$aa_pair = with(df.aa.coef.diag, 
+  as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_")))) 
+df.aa.coef.diag = df.aa.coef.diag %>% select(aa_pair, coef)
+df.aa.coef.diag = df.aa.coef.diag[!duplicated(df.aa.coef.diag[,1]),]
+
+p2 = heatmap.2(aa_pair_mat_imp, 
+          hclustfun = function(x) hclust(x, method = "ward.D2"),
+          RowSideColors = aa_colors[rownames(aa_pair_mat)], 
+          ColSideColors = aa_colors[colnames(aa_pair_mat)],
+          trace = "none",
+          #breaks = seq(-16, -7, length.out = 101),
+          col=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32))
+```
+
+
+### Discard distant amino acids
 Append amino acid distance coefficients
 
 ```{r}
@@ -315,6 +537,72 @@ aa_pair_energy_mat$aa_tcr = NULL
 aa_pair_energy_mat = as.matrix(aa_pair_energy_mat)
 
 heatmap.2(aa_pair_energy_mat, 
+          hclustfun = function(x) hclust(x, method = "ward.D2"),
+          RowSideColors = aa_colors[rownames(aa_pair_mat)], 
+          ColSideColors = aa_colors[colnames(aa_pair_mat)],
+          trace = "none",
+          breaks = seq(-40, 2, length.out = 33),
+          col=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32)))
+```
+
+## Impute contact energies
+```{r, fig.width=10}
+aa_data = generate_data(aa_pair_energy_mat, .cv = 10)
+
+suppressWarnings( {
+  ps = lapply(1:10, function (i) { qplot(aa_data$X[,i], aa_data$y, geom = c("point", "smooth"), method="lm") + theme_bw() })
+  })
+summary(lm(aa_data$y ~ aa_data$X))
+do.call(gridExtra::grid.arrange, c(ps, list(ncol = 5)))
+```
+
+
+```{r}
+imp_res = list()
+imp_res[["mean_1"]] = eval_model(aa_data, impute_knn_mean, .k = 1)
+imp_res[["mean_3"]] = eval_model(aa_data, impute_knn_mean, .k = 3)
+imp_res[["mean_5"]] = eval_model(aa_data, impute_knn_mean, .k = 5)
+imp_res[["dist_1"]] = eval_model(aa_data, impute_knn_dist, .k = 1)
+imp_res[["dist_3"]] = eval_model(aa_data, impute_knn_dist, .k = 3)
+imp_res[["dist_5"]] = eval_model(aa_data, impute_knn_dist, .k = 5)
+imp_res[["reg"]] = eval_model(aa_data, impute_reg)
+imp_res = melt(imp_res)
+colnames(imp_res) = c("val", "data", "app")
+qplot(x = data, y = val, fill = app, data = imp_res, geom = "boxplot") + theme_bw()
+```
+
+### Imputed energies
+
+```{r}
+melted = melt(aa_pair_energy_mat)[melt(upper.tri(aa_pair_energy_mat, T))[,3],]
+melted[,1] = as.character(melted[,1])
+melted[,2] = as.character(melted[,2])
+test_data = melted[is.na(melted[,3]), ]
+
+imputed = impute_reg(aa_data$X[aa_data$train[[1]], ],
+                          aa_data$y[aa_data$train[[1]]],
+                          aa_data$X[aa_data$val[[1]], ],
+                          aa_data$y[aa_data$val[[1]]],
+                          aa_data$X_test)[[3]]
+
+test_data[,3] = imputed
+
+aa_pair_energy_mat_imp = aa_pair_energy_mat
+for (r in 1:nrow(test_data)) {
+  aa_pair_energy_mat_imp[test_data[r,1], test_data[r,2]] = test_data[r,3]
+  aa_pair_energy_mat_imp[test_data[r,2], test_data[r,1]] = test_data[r,3]
+  ind = intersect(which(df.energies[,3] == test_data[r,1]), which(df.energies[,4] == test_data[r,2]))
+  if (length(ind) == 0) {
+    ind = intersect(which(df.energies[,3] == test_data[r,2]), which(df.energies[,4] == test_data[r,1]))
+  }
+  if (length(ind) == 0) {
+    df.energies = rbind(df.energies, list(paste0(test_data[r,1], "_", test_data[r,2]), test_data[r,3], test_data[r,1], test_data[r,2]))
+  } else {
+    df.energies[[ind, 2]] = imputed[r]
+  }
+}
+
+heatmap.2(aa_pair_energy_mat_imp, 
           hclustfun = function(x) hclust(x, method = "ward.D2"),
           RowSideColors = aa_colors[rownames(aa_pair_mat)], 
           ColSideColors = aa_colors[colnames(aa_pair_mat)],
