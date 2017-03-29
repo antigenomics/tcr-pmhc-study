@@ -33,7 +33,7 @@ def onehot_omega(df, left_window, right_window, max_pos):
     X = np.zeros((len(df)*max_pos, (left_window+right_window+1) * len(CHARS)), dtype=bool)
     y = np.zeros((len(df)*max_pos, 1), dtype=np.float32)
     for seq_i, seq in enumerate(df["sequence"]):
-        seq = seq[-left_window:] + seq + seq[:right_window]
+        seq = seq[len(seq) - left_window : len(seq)] + seq + seq[:right_window]
         for index, target_pos in enumerate(range(left_window + 1, len(seq) - right_window)):
             target_aa = seq[target_pos]
             for amb_pos, amb_aa in enumerate(seq[target_pos-left_window : target_pos+right_window+1]):
