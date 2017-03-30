@@ -1,0 +1,146 @@
+---
+title: "Evaluate simple model"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+Prepare contact model
+
+```{r}
+load("model_simple.RData")
+
+compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq, id = "tmp") {
+  # Get all TCR residue - AG residue pairs
+  cdr_seq = as.character(cdr_seq)
+  ag_seq = as.character(ag_seq)
+  df.cdr = data.frame(aa_tcr = strsplit(cdr_seq, "")[[1]], 
+                      pos_tcr = 1:nchar(cdr_seq) - 1)
+  df.ag = data.frame(aa_antigen = strsplit(ag_seq, "")[[1]], 
+                      pos_antigen = 1:nchar(ag_seq) - 1)
+  
+  df.pairs = expand.grid(df.cdr$pos_tcr, df.ag$pos_antigen)
+  colnames(df.pairs) = c("pos_tcr", "pos_antigen")
+  
+  df.pairs = merge(df.pairs, df.cdr)
+  df.pairs = merge(df.pairs, df.ag)
+  
+  df.pairs$aa_pair = with(df.pairs, 
+                       as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen),
+                                        paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_")))) 
+  
+  df.pairs$mhc_type = mhc_type
+  df.pairs$tcr_chain = tcr_chain
+  df.pairs$tcr_region = tcr_region
+  df.pairs$len_tcr = nchar(cdr_seq)
+  df.pairs$len_antigen = nchar(ag_seq)
+  
+  df.pairs$pos_tcr_c = with(df.pairs, pos_tcr - round(len_tcr / 2))
+  df.pairs$pos_antigen_c = with(df.pairs, pos_antigen - round(len_antigen / 2))
+  
+  df.pairs$id = id
+  
+  df.pairs = df.pairs %>% select(id, mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_antigen, aa_tcr, aa_pair)
+    
+  # merge with model coefficients
+  df.res = merge(df.pairs, 
+        df.ca.mean, all.x = T)
+  df.res = merge(df.res, 
+        df.aa.coef, all.x = T)
+  df.res = merge(df.res, 
+        df.energies, all.x = T)
+  
+  # Predict contact probabilities
+  df.res$p = predict(contact_glm, df.res, type="response")
+  
+  # and mean energies
+  df.res$pE = with(df.res, p * energy.mean)
+  
+  # set missing data to 0 (?)
+  df.res$p[is.na(df.res$p)] = 0
+  df.res$pE[is.na(df.res$pE)] = 0
+  
+  as.data.frame(df.res %>% 
+                  select(id, mhc_type, tcr_chain, tcr_region, pos_tcr_c, pos_antigen_c, aa_antigen, aa_tcr, aa_pair, p, pE))
+}
+
+compute_contact_sum = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq, id = "tmp") {
+  cm = compute_contact_map(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq, id)
+  list(p = sum(cm$p), pE = sum(cm$pE), id = id)
+}
+
+# test
+
+cm.tmp = compute_contact_map("MHCI","TRB","CDR3","CASRPGLAGGRPEQYF","LLFGYPVYV","WT")
+cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRB","CDR3","CASRPGLMSAQPEQLF","LLFGYPVYV","High affinity"))
+
+print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(pE)))
+
+ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("P", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32)) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+ggplot(cm.tmp, aes(x=pos_tcr_c, y=pos_antigen_c)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = pE), cex=2) +
+  scale_x_continuous(breaks=-8:9) +
+  scale_y_continuous(breaks=-5:5) +
+  scale_fill_gradientn("E", colors=rev(colorRampPalette(brewer.pal(9, 'YlOrRd'))(32))) +
+  facet_grid(id~., scales="free", space="free") +
+  theme_bw()
+
+compute_contact_sum("MHCI","TRB","CDR3","CASRPGLAGGRPEQYF","LLFGYPVYV")
+```
+
+Load CDR12 sequence by segment ID table
+
+```{r}
+df.cdr12 = read.table("cdr12.txt.gz", header=T, sep="\t", stringsAsFactors = F) %>%
+  filter(species == "HomoSapiens" & grepl("^TR[AB]", gene) & endsWith(gene, "01")) %>% # human only
+  select(gene, cdr1aa, cdr2aa) %>%
+  mutate(gene = gsub("\\*01", "", gene))
+
+colnames(df.cdr12) = c("v_segm", "cdr1aa", "cdr2aa") # for merging
+```
+
+### Neoantigen data
+
+From https://www.ncbi.nlm.nih.gov/pubmed/26901407
+
+```{r}
+df.nag = merge(read.table("neoantigen_ag.txt", header = T, sep = "\t"),
+               read.table("neoantigen_tcr.txt", header = T, sep = "\t"), all = T)
+```
+
+```{r}
+df.nag = df.nag %>%
+  group_by(ag_seq, tcr_seq, id) %>%
+  mutate(cs = list(compute_contact_sum("MHCI", tcr_chain, tcr_region, tcr_seq, ag_seq)), p = cs[[1]]$p, pE = cs[[1]]$pE)
+```
+
+```{r}
+df.nag.sum = df.nag %>%
+  filter(tcr_region == "CDR3") %>%
+  group_by(neoantigen, tcr_chain, reactivity, id) %>%
+  summarize(p = sum(p), pE = sum(pE))
+
+library(reshape2)
+
+df.nag.sum.1 = dcast(df.nag.sum, neoantigen+reactivity+id ~ tcr_chain, value.var = "pE")
+
+ggplot(df.nag.sum.1, aes(x = TRA, y = TRB, color = neoantigen == reactivity)) +
+  geom_point(stat = "identity") +
+  facet_wrap(~neoantigen) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+

@@ -1,0 +1,687 @@
+---
+title: "TCR:pMHC interaction model"
+
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(nloptr)
+library(reshape2)
+library(pROC)
+library(bnlearn)
+library(stringr)
+library(gplots)
+```
+
+```{r}
+df.tcr = read.table("../result/backbone.txt", header = T, sep = "\t") %>%
+  mutate(tcr_chain = as.factor(substr(as.character(tcr_v_allele), 1, 3)))
+
+df.ag = read.table("../result/backbone_ag.txt", header = T, sep = "\t")
+
+df.master = read.table("../result/structure.txt", header=T, sep="\t") %>%
+  filter(tcr_region %in% c("CDR1", "CDR2", "CDR3")) %>%
+  mutate(tcr_chain = as.factor(substr(as.character(tcr_v_allele), 1, 3))) %>%
+  droplevels
+```
+
+# Backbone
+
+## Overview
+
+Modelling $x_i = f(l, L)$ for $C\alpha$ atoms. CDRs and antigen structures are transformed as follows:
+
+- C terminal residue is used as origin
+- Coordinates are rotated so that C-N terminus direction is aligned with X axis 
+- YZ projection of the center of mass is aligned with Z axis
+
+First lets have a look at these functions for TCR
+
+```{r}
+ggplot(df.tcr, aes(x = pos_tcr / (len_tcr - 1), y = x)) +
+  geom_line(aes(group = pdb_id, color = len_tcr), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(tcr_region~tcr_chain)
+
+ggplot(df.tcr, aes(x = pos_tcr / (len_tcr - 1), y = y)) +
+  geom_line(aes(group = pdb_id, color = len_tcr), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(tcr_region~tcr_chain)
+
+ggplot(df.tcr, aes(x = pos_tcr / (len_tcr - 1), y = z)) +
+  geom_line(aes(group = pdb_id, color = len_tcr), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(tcr_region~tcr_chain)
+```
+
+and antigen
+
+```{r}
+ggplot(df.ag, aes(x = pos_ag / (len_ag - 1), y = x)) +
+  geom_line(aes(group = pdb_id, color = len_ag), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(.~mhc_type)
+
+ggplot(df.ag, aes(x = pos_ag / (len_ag - 1), y = y)) +
+  geom_line(aes(group = pdb_id, color = len_ag), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(.~mhc_type)
+
+ggplot(df.ag, aes(x = pos_ag / (len_ag - 1), y = z)) +
+  geom_line(aes(group = pdb_id, color = len_ag), alpha = 0.8) +
+  scale_color_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'Spectral')))(32)) +
+  facet_grid(.~mhc_type)
+```
+
+## Fitting XYZ with Beta and linear functions
+
+Functions to fit
+
+```{r}
+calc_x = function(l, L, params) {
+  H = params[1] + params[2] * L
+  a = params[3]
+  b = params[4]
+  d = params[5] + params[6] * L # distance from C to F/W
+  x = l / (L - 1)
+  return(x * d + H * x ^ (a - 1) * (1 - x) ^ (b - 1) / beta(a, b))
+}
+
+param_ranges_x = data.frame(axis = "x",
+                            x0 = c(10, 0.5, 1.5, 1.5, 5, 0.5),
+                            lb = c(0, 0, 1.001, 1.001, 0, 0),
+                            ub = c(20, 5, 10, 10, 50, 5))
+
+calc_y = function(l, L, params) {
+  H = params[1] + params[2] * L
+  a1 = params[3]
+  b1 = params[4]
+  a2 = params[5]
+  b2 = params[6]
+  x = l / (L - 1)
+  
+  #parity = (min(l, L - 1 - l) %% 2)
+  #offset = ifelse(x < 0.5, d * parity, -d*parity)
+  
+  return(H * (x ^ (a2 - 1) * (1 - x) ^ (b2 - 1) / beta(a2, b2) - x ^ (a1 - 1) * (1 - x) ^ (b1 - 1) / beta(a1, b1)))
+}
+
+param_ranges_y = data.frame(axis = "y",
+                            x0 = c(10, 0.5, 2, 5, 5, 2),
+                            lb = c(0, 0, 1.001, 1.001, 1.001, 1.001),
+                            ub = c(20, 20, 10, 10, 10, 10))
+
+calc_z = function(l, L, params) {
+  H = params[1] + params[2] * L
+  a = params[3]
+  b = params[4]
+  x = l / (L - 1)
+  return(H * x ^ (a - 1) * (1 - x) ^ (b - 1) / beta(a, b))
+}
+
+param_ranges_z = data.frame(axis = "z",
+                            x0 = c(10, 0.5, 1.5, 1.5),
+                            lb = c(0, 0, 1.001, 1.001),
+                            ub = c(20, 2, 10, 10))
+
+params_cdr = rbind(param_ranges_x, param_ranges_y, param_ranges_z)
+
+
+calc_coord = function(l, L, params, axis) {
+   switch(axis,
+        x = calc_x(l, L, params),
+        y = calc_y(l, L, params),
+        z = calc_z(l, L, params))
+}
+```
+
+### Fitting CDR loops
+
+Optimization goes here
+
+```{r}
+params_fitted_tcr = data.frame()
+
+for (t in list(c("CDR1", "CDR2"), "CDR3")) {
+  for (a in c("x", "y", "z")) {
+    print(paste("Fitting", paste(t), a))
+    
+    # dplyr::select starting params and bounds
+    params_nloptr = params_cdr %>% filter(axis == a)
+    
+    # prepare data
+    df.fit = df.tcr %>% filter(tcr_region %in% t)
+    df.fit$value = df.fit[,a]
+    df.fit$pos = df.fit$pos_tcr
+    df.fit$len = df.fit$len_tcr
+    
+    # generic objective
+    obj = function(params, data) with(data, mean((value - calc_coord(pos, len, params, a))^2))
+    
+    res = with(params_nloptr,
+               nloptr(x0 = x0, lb = lb, ub = ub,
+                      eval_f = obj,
+                      data = df.fit,
+                      opts = list(algorithm = "NLOPT_LN_SBPLX", maxeval = 1e6)))
+    
+    for (tt in t) {
+      solution = data.frame(tcr_region = tt,
+                            axis = a,
+                            params = res$solution)
+      params_fitted_tcr = rbind(params_fitted_tcr, solution)
+    }
+    
+    print(res)
+    }
+}
+```
+
+Check solutions
+
+```{r}
+calc_coord_tcr_fitted = function(l, L, tcr_region, axis) {
+  t = as.character(tcr_region[1])
+  a = as.character(axis[1])
+  params = (params_fitted_tcr %>% filter(tcr_region == t, axis == a))$params
+  
+  calc_coord(l, L, params, a)
+}
+
+df.tcr.melt = melt(df.tcr, measure.vars = c("x", "y", "z"))
+
+df.tcr.melt = df.tcr.melt %>%
+  group_by(tcr_region, variable) %>%
+  mutate(value_fit = calc_coord_tcr_fitted(pos_tcr, len_tcr, tcr_region, variable))
+```
+
+
+```{r}
+ggplot(df.tcr.melt %>% filter(variable == "x"), aes(x = pos_tcr / (len_tcr - 1))) +
+  geom_line(aes(group = interaction(pdb_id, tcr_chain, tcr_region), y = value), alpha = 0.8) +
+  geom_line(aes(group = tcr_region, y = value_fit), color = "red") +
+  ylab("x") +
+  facet_wrap(~len_tcr)
+
+ggplot(df.tcr.melt %>% filter(variable == "y"), aes(x = pos_tcr / (len_tcr - 1))) +
+  geom_line(aes(group = interaction(pdb_id, tcr_chain, tcr_region), y = value), alpha = 0.8) +
+  geom_line(aes(group = tcr_region, y = value_fit), color = "red") +
+  ylab("y") +
+  facet_wrap(~len_tcr)
+
+ggplot(df.tcr.melt %>% filter(variable == "z"), aes(x = pos_tcr / (len_tcr - 1))) +
+  geom_line(aes(group = interaction(pdb_id, tcr_chain, tcr_region), y = value), alpha = 0.8) +
+  geom_line(aes(group = tcr_region, y = value_fit), color = "red") +
+  ylab("z") +
+  facet_wrap(~len_tcr)
+```
+
+### Fitting antigen peptide
+
+Optimization goes here
+
+```{r}
+params_fitted_ag = data.frame()
+
+for (m in c("MHCI", "MHCII")) {
+  for (a in c("x", "y", "z")) {
+    print(paste("Fitting", m, a))
+    
+    # dplyr::select starting params and bounds
+    params_nloptr = params_cdr %>% filter(axis == a)
+    
+    # prepare data
+    df.fit = df.ag %>% filter(mhc_type %in% m)
+    df.fit$value = df.fit[,a]
+    df.fit$pos = df.fit$pos_ag
+    df.fit$len = df.fit$len_ag
+    
+    # generic objective
+    obj = function(params, data) with(data, mean((value - calc_coord(pos, len, params, a))^2))
+    
+    res = with(params_nloptr,
+               nloptr(x0 = x0, lb = lb, ub = ub,
+                      eval_f = obj,
+                      data = df.fit,
+                      opts = list(algorithm = "NLOPT_LN_SBPLX", maxeval = 1e6)))
+    
+    solution = data.frame(mhc_type = m,
+                          axis = a,
+                          params = res$solution)
+    params_fitted_ag = rbind(params_fitted_ag, solution)
+    
+    print(res)
+    }
+}
+```
+
+Check solutions
+
+```{r}
+calc_coord_ag_fitted = function(l, L, mhc_type, axis) {
+  m = as.character(mhc_type[1])
+  a = as.character(axis[1])
+  params = (params_fitted_ag %>% filter(mhc_type == m, axis == a))$params
+  
+  calc_coord(l, L, params, a)
+}
+
+df.ag.melt = melt(df.ag, measure.vars = c("x", "y", "z"))
+
+df.ag.melt = df.ag.melt %>%
+  group_by(mhc_type, variable) %>%
+  mutate(value_fit = calc_coord_ag_fitted(pos_ag, len_ag, mhc_type, variable))
+```
+
+```{r}
+ggplot(df.ag.melt %>% filter(variable == "x"), aes(x = pos_ag / (len_ag - 1))) +
+  geom_line(aes(group = pdb_id, y = value), alpha = 0.8) +
+  geom_line(aes(group = mhc_type, y = value_fit), color = "red") +
+  ylab("x") +
+  facet_wrap(~len_ag)
+
+ggplot(df.ag.melt %>% filter(variable == "y"), aes(x = pos_ag / (len_ag - 1))) +
+  geom_line(aes(group = pdb_id, y = value), alpha = 0.8) +
+  geom_line(aes(group = mhc_type, y = value_fit), color = "red") +
+  ylab("y") +
+  facet_wrap(~len_ag)
+
+ggplot(df.ag.melt %>% filter(variable == "z"), aes(x = pos_ag / (len_ag - 1))) +
+  geom_line(aes(group = pdb_id, y = value), alpha = 0.8) +
+  geom_line(aes(group = mhc_type, y = value_fit), color = "red") +
+  ylab("z") +
+  facet_wrap(~len_ag)
+```
+
+## Optimizing orientation
+
+Parameters of distance function specify separation across Z axis and yaw and pitch rotation
+
+```{r}
+calc_dist = function(x_tcr, y_tcr, z_tcr, x_ag, y_ag, z_ag, x_tcr_max, x_ag_max, params) {
+  z_tcr = -z_tcr + params[1]
+  x_tcr = x_tcr - x_tcr_max / 2
+  x_ag = x_ag - x_ag_max / 2
+  
+  cs1 = cos(params[2])
+  ss1 = sin(params[2])
+  cs2 = cos(params[3])
+  ss2 = sin(params[3])
+  cs3 = cos(params[4])
+  ss3 = sin(params[4])
+  
+  x_tcr = x_tcr * cs1 - y_tcr * ss1
+  y_tcr = x_tcr * ss1 + y_tcr * cs1
+  
+  x_tcr = x_tcr * cs2 - z_tcr * ss2
+  z_tcr = x_tcr * ss2 + z_tcr * cs2
+  
+  y_tcr = y_tcr * cs3 - z_tcr * ss3
+  z_tcr = y_tcr * ss3 + z_tcr * cs3
+  
+  return(sqrt((x_tcr - x_ag) ^ 2 + (y_tcr - y_ag) ^ 2 + (z_tcr - z_ag) ^ 2))
+}
+```
+
+Optimization goes here
+
+```{r}
+TMP = merge(df.ag, df.tcr, by = c("pdb_id", "mhc_type"), suffixes = c("_tcr", "_ag"))
+TMP = merge(TMP, df.master)
+
+params_fitted_orientation = data.frame()
+
+df.distest.summary = df.master %>%
+  group_by(pdb_id, tcr_chain, tcr_region, mhc_type) %>%
+  summarize(bad_entity = min(distance_CA) >= 30)
+
+df.distest = merge(df.master, df.distest.summary) %>% filter(!bad_entity)
+
+for (t in c("CDR1", "CDR2", "CDR3")) {
+  for (ch in c("TRA", "TRB")) {
+    for (m in c("MHCI", "MHCII")) {
+      print(paste("Fitting orientation for", t, ch, m))
+      
+      df.fit = TMP %>% #df.distest %>%
+        filter(tcr_region == t, tcr_chain == ch, mhc_type == m) %>%
+        dplyr::select(pdb_id, pos_tcr, len_tcr, pos_ag, len_ag,
+                      x_tcr, y_tcr, z_tcr, x_ag, y_ag, z_ag,
+                      #pos_antigen, len_antigen,
+                      distance_CA)
+      
+      #df.fit$x_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "x")
+      #df.fit$y_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "y")
+      #df.fit$z_tcr = calc_coord_tcr_fitted(df.fit$pos_tcr, df.fit$len_tcr, t, "z")
+      
+      #df.fit$x_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "x")
+      #df.fit$y_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "y")
+      #df.fit$z_ag = calc_coord_ag_fitted(df.fit$pos_antigen, df.fit$len_antigen, m, "z")
+      
+      df.fit = df.fit %>%
+        group_by(pdb_id) %>%
+        mutate(x_tcr_max = max(x_tcr), x_ag_max = max(x_ag))
+      
+      obj = function(params, data) with(data, mean((1/distance_CA - 
+                                                      1/calc_dist(x_tcr, y_tcr, z_tcr,
+                                                                x_ag, y_ag, z_ag, 
+                                                                x_tcr_max, x_ag_max,
+                                                                params))^2))
+      
+      res = with(params_nloptr,
+               nloptr(x0 = c(20, pi/2, 0, 0), lb = c(0, 0, -pi/2, -pi/2), ub = c(100, 2*pi, pi/2, pi/2),
+                      eval_f = obj,
+                      data = df.fit,
+                      opts = list(algorithm = "NLOPT_LN_SBPLX", maxeval = 1e5)))
+      
+      sola = res$solution
+      sola[2] = sola[2] / pi * 180
+      sola[3] = sola[3] / pi * 180
+      sola[4] = sola[4] / pi * 180
+    
+      solution = data.frame(mhc_type = m,
+                            tcr_chain = ch,
+                            tcr_region = t,
+                            params = res$solution,
+                            params2 = sola,
+                            param_name = c("height", "yaw", "pitch", "roll"))
+      
+      params_fitted_orientation = rbind(params_fitted_orientation, solution)
+    
+      print(res)
+    }
+  }
+}
+```
+
+Take a look at fitted values
+
+```{r}
+params_fitted_orientation1 = dcast(params_fitted_orientation, mhc_type + tcr_chain + tcr_region ~ param_name, value.var = "params2")
+params_fitted_orientation2 = params_fitted_orientation1
+params_fitted_orientation2$yaw = params_fitted_orientation2$yaw + 180 
+params_fitted_orientation2$pitch = NA 
+params_fitted_orientation2$roll = NA 
+params_fitted_orientation1 = rbind(params_fitted_orientation1, params_fitted_orientation2)
+
+params_fitted_orientation1$yaw = ifelse(params_fitted_orientation1$yaw > 360, 
+                                        params_fitted_orientation1$yaw - 360,
+                                        ifelse(params_fitted_orientation1$yaw < 0,
+                                               360 + params_fitted_orientation1$yaw,
+                                                            params_fitted_orientation1$yaw))
+params_fitted_orientation1$pitch = ifelse(params_fitted_orientation1$pitch > 360, 
+                                        params_fitted_orientation1$pitch - 360,
+                                        ifelse(params_fitted_orientation1$pitch < 0,
+                                               360 + params_fitted_orientation1$pitch,
+                                                            params_fitted_orientation1$pitch))
+params_fitted_orientation1$roll = ifelse(params_fitted_orientation1$roll > 360, 
+                                        params_fitted_orientation1$roll - 360,
+                                        ifelse(params_fitted_orientation1$roll < 0,
+                                               360 + params_fitted_orientation1$roll,
+                                                            params_fitted_orientation1$roll))
+
+ggplot(params_fitted_orientation1, aes(x = yaw, y = 1, color = tcr_region)) +
+  geom_bar(stat="identity") +
+  geom_point() +
+  coord_polar(theta = "x") +
+  scale_x_continuous("yaw (rotation wrt Z axis)", breaks=seq(0, 360, by=30), expand=c(0,0), lim=c(0, 360)) +
+  facet_grid(mhc_type ~ tcr_chain)
+
+ggplot(params_fitted_orientation1, aes(x = pitch, y = height, color = tcr_region)) +
+  geom_bar(stat="identity") +
+  geom_point() +
+  coord_polar(theta = "x") +
+  scale_x_continuous("pitch (rotation wrt Y axis)", breaks=seq(0, 360, by=30), expand=c(0,0), lim=c(0, 360)) +
+  facet_grid(mhc_type ~ tcr_chain)
+
+ggplot(params_fitted_orientation1, aes(x = roll, y = height, color = tcr_region)) +
+  geom_bar(stat="identity") +
+  geom_point() +
+  coord_polar(theta = "x") +
+  scale_x_continuous("roll (rotation wrt X axis)", breaks=seq(0, 360, by=30), expand=c(0,0), lim=c(0, 360)) +
+  facet_grid(mhc_type ~ tcr_chain)
+```
+
+General purpose function for computing distances
+
+```{r}
+
+compute_distance_slave = function(pdb_id, pos_tcr, len_tcr, pos_antigen, len_antigen, tcr_chain, tcr_region, mhc_type) {
+  tc = as.character(tcr_chain[1])
+  tr = as.character(tcr_region[1])
+  mt = as.character(mhc_type[1])
+  
+  
+  
+  #x_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "x")
+  #y_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "y")
+  #z_tcr = calc_coord_tcr_fitted(pos_tcr, len_tcr, tr, "z")
+      
+  #x_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "x")
+  #y_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "y")
+  #z_ag = calc_coord_ag_fitted(pos_antigen, len_antigen, mt, "z")
+      
+  max_x = data.frame(pdb_id, TMP$x_tcr, z$x_ag) %>%
+    group_by(pdb_id) %>%
+    mutate(x_tcr_max = max(x_tcr), x_ag_max = max(x_ag))
+  
+  params = (params_fitted_orientation %>%
+    filter(tcr_chain == tc & tcr_region == tr & mhc_type == mt))$params
+      
+  calc_dist(z$x_tcr, z$y_tcr, z$z_tcr, z$x_ag, z$y_ag, z$z_ag, max_x$x_tcr_max, max_x$x_ag_max, params)
+}
+
+compute_distances_master = function(data) {
+  data %>% 
+    group_by(tcr_chain, tcr_region, mhc_type) %>%
+    mutate(distance_est = compute_distance_slave(pdb_id, pos_tcr, len_tcr, pos_antigen, len_antigen, tcr_chain, tcr_region, mhc_type))
+}
+
+df.distest = compute_distances_master(df.distest)
+```
+
+Now lets take a look at overall results
+
+```{r}
+ggplot(df.distest, aes(x = as.integer(distance_CA), group = as.integer(distance_CA), y = distance_est)) +
+  geom_boxplot() +
+  facet_grid(mhc_type~tcr_chain+tcr_region) +
+  geom_abline(slope = 1, intercept = 0, color="red", linetype="dashed") +
+  scale_x_continuous(limits = c(0, 30)) +
+  scale_y_continuous(limits = c(0, 30)) +
+  theme_bw()
+```
+
+
+# Rotation
+
+> TODO, this can greatly improve model, yet hard to incorporate. The simpliest way would be to use the parity of TCR/ag residue number
+
+```{r}
+ggplot(df.master, aes(x=distance_CA, y = distance_CA - distance_CB, color = distance <= 4.5)) +
+  geom_density2d() + facet_wrap(~aa_tcr)
+```
+
+# Contact probabilities
+
+For 4.5 A limit see Heringa J, Argos P (1991) Side-chain clusters in protein structures and their role in protein folding. J Mol Biol 220:151–171.
+
+```{r}
+df.contest = df.distest %>%
+  filter(distance_CA <= 25 & distance_est <= 25) %>%
+  mutate(contact = distance <= 4.5, aa_pair = as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), 
+                                    paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_")))) %>%
+  select(contact, aa_pair, distance_CA, distance_est, mhc_type, tcr_chain, tcr_region)
+```
+
+Plot distance distribution for contacts and non-contacts, for real and estimated distances:
+
+```{r}
+ggplot(df.contest, aes(x = distance_CA, fill = contact)) +
+  geom_histogram(binwidth = 1) +
+  facet_grid(mhc_type~tcr_chain+tcr_region, scales="free_y") +
+  scale_x_continuous(limits=c(0,20))+
+  theme_bw()
+
+ggplot(df.contest, aes(x = distance_est, fill = contact)) +
+  geom_histogram(binwidth = 1) +
+  facet_grid(mhc_type~tcr_chain+tcr_region, scales="free_y") +
+  scale_x_continuous(limits=c(0,20))+
+  theme_bw()
+```
+
+Using a generalized linear model to fit contacts. Compare it with an ideal model.
+
+```{r}
+res = glm(contact ~ distance_CA + aa_pair + 0, family = binomial(), data = df.contest)
+
+summary(res)
+```
+
+Explore results
+
+```{r}
+coef = res$coefficients
+pvalue = coef(summary(res))[,4]
+coef = ifelse(pvalue < 0.05, coef, NA)
+names(coef) = str_split_fixed(names(coef), "aa_pair", 2)[,2]
+
+df.coef = data.frame(coef = coef,
+                     aa_1 = str_split_fixed(names(coef), "_", 2)[, 1],
+                     aa_2 = str_split_fixed(names(coef), "_", 2)[ ,2]) %>%
+  filter(aa_1 != "" & aa_2 != "") %>%
+  droplevels
+
+df.coef2 = df.coef
+df.coef2$aa_1 = df.coef$aa_2
+df.coef2$aa_2 = df.coef$aa_1
+
+df.coef = rbind(df.coef, df.coef2)
+
+ggplot(df.coef, aes(x=aa_1, y = aa_2, fill = coef)) +
+  geom_tile() + 
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(9, 'Spectral')))(32)) +
+  theme_bw()
+
+
+aa_pair_mat = dcast(df.coef, aa_1 ~ aa_2, value.var = "coef", fun.aggregate = mean)
+rownames(aa_pair_mat) = aa_pair_mat$aa_1
+aa_pair_mat$aa_1 = NULL
+aa_pair_mat = as.matrix(aa_pair_mat)
+#aa_pair_mat[is.na(aa_pair_mat)] = 0
+
+df.hydro <- data.frame(
+  aa = strsplit("I V L F C M A W G T S Y P H N D Q E K R", " ")[[1]],
+  hydrop = strsplit("4.5 4.2 3.8 2.8 2.5 1.9 1.8 -0.9 -0.4 -0.7 -0.8 -1.3 -1.6 -3.2 -3.5 -3.5 -3.5 -3.5 -3.9 -4.5", " ")[[1]]
+)
+
+df.hydro = df.hydro %>%
+  mutate(hydrop = as.numeric(as.character(hydrop))) %>%
+  arrange(hydrop) %>%
+  mutate(hydrop.sc = round(100 * (hydrop - min(hydrop)) / (max(hydrop) - min(hydrop))))
+
+df.hydro$color = colorRampPalette(brewer.pal(11, 'PRGn'))(101)[df.hydro$hydrop.sc + 1]
+
+aa_colors = df.hydro$color
+names(aa_colors) = df.hydro$aa
+
+heatmap.2(aa_pair_mat, 
+          hclustfun = function(x) hclust(x, method = "ward.D2"),
+          RowSideColors = aa_colors[rownames(aa_pair_mat)], 
+          ColSideColors = aa_colors[colnames(aa_pair_mat)],
+          trace = "none",
+          #breaks = seq(0, 0.2, length.out = 101),
+          col=colorRampPalette(brewer.pal(11, 'YlGnBu'))(100))
+```
+
+## Building a predictor
+
+```{r}
+df.coef$aa_pair = with(df.coef, paste(aa_1, aa_2, sep = "_"))
+
+df.contest = merge(df.contest, df.coef)
+
+res2 = glm(contact ~ distance_est + coef, family = binomial(), data = df.contest)
+
+summary(res2)
+```
+
+Check accuracy
+
+```{r}
+df.contest$p = predict(res, df.contest, type="response")
+
+rocobj = plot.roc(df.contest[,"contact"], df.contest$p, ci=T)
+
+rocobj
+```
+
+Predict for full dataset
+
+```{r}
+df.contest2 = df.distest %>%
+  mutate(contact = distance <= 5, aa_pair = as.factor(ifelse(as.character(aa_tcr) < as.character(aa_antigen), 
+                                    paste(aa_tcr, aa_antigen, sep = "_"), paste(aa_antigen, aa_tcr, sep = "_"))))
+
+df.contest2 = merge(df.contest2, df.coef)
+
+df.contest2$p = predict(res, df.contest2, type="response")
+```
+
+Expected and observed number of contacts
+
+```{r}
+df.contest2sum = df.contest2 %>%
+  group_by(pdb_id, mhc_type, tcr_chain) %>%
+  summarize(contact = sum(contact), P = sum(p, na.rm = T))
+
+ggplot(df.contest2sum, aes(contact, P)) +
+  geom_point() +
+  geom_smooth(method = "lm") + scale_x_continuous(limits = c(0,30)) + scale_y_continuous(limits = c(0,30)) +
+  facet_grid(mhc_type ~ tcr_chain)
+```
+
+Check for a couple of antigens
+
+```{r}
+df.contest3 = df.contest2 %>%
+  filter(antigen_seq == "GLCTLVAML") %>%
+  droplevels()
+
+ggplot(df.contest3, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=1.3) +
+  geom_point(aes(color=contact)) +
+  scale_x_continuous(breaks=0:20) +
+  scale_y_continuous(breaks=0:20) +
+  scale_fill_gradient("P", 
+                      low="white", high="#045a8d") +
+  scale_color_manual(values = c(NA, "red")) +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
+
+```{r}
+df.contest3 = df.contest2 %>%
+  filter(antigen_seq == "LLFGYPVAV") %>%
+  droplevels()
+
+ggplot(df.contest3, aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill = NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = p), cex=1.3) +
+  geom_point(aes(color=contact)) +
+  scale_x_continuous(breaks = 0:20) +
+  scale_y_continuous(breaks = 0:20) +
+  scale_fill_gradient("P", 
+                      low="white", high="#045a8d") +
+  scale_color_manual(values = c(NA, "red")) +
+  facet_grid(tcr_chain ~ tcr_region, scales="free", space="free") +
+  theme_bw()
+```
