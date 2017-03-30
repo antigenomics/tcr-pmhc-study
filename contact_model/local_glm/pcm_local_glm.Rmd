@@ -354,6 +354,7 @@ Impute the missing values in original contact probability coefficient matrix
 
 ```{r}
 impute_knn_mean <- function (X_train, y_train, X_val, y_val, X_test, .k) {
+  # For each object in the train data find its 5 closest neighbours and take take the mean of their coefficients as predictions.
   res_tr = sapply(1:nrow(X_train), function (row_i) { 
     tmp = sapply(1:nrow(X_train), function (row_j) {
       if (row_i != row_j) { sqrt(sum((X_train[row_i, ] - X_train[row_j, ]) ^ 2))
@@ -363,6 +364,7 @@ impute_knn_mean <- function (X_train, y_train, X_val, y_val, X_test, .k) {
     mean(y_train[order(tmp)[1:.k]])
   })
   
+  # For each object in the validation data find its 5 closest neighbours in the training data and take the mean of their coefficients as predictions.
   res_val = sapply(1:nrow(X_val), function (row_i) { 
     tmp = sapply(1:nrow(X_train), function (row_j) {
       sqrt(sum((X_val[row_i, ] - X_train[row_j, ]) ^ 2))
@@ -370,6 +372,7 @@ impute_knn_mean <- function (X_train, y_train, X_val, y_val, X_test, .k) {
     mean(y_train[order(tmp)[1:.k]])
   })
   
+  # Merge training and validation data and predict the final missing values.
   merged = rbind(X_train, X_val)
   merged_y = c(y_train, y_val)
   imp_tst = sapply(1:nrow(X_test), function (row_i) { 
@@ -384,6 +387,7 @@ impute_knn_mean <- function (X_train, y_train, X_val, y_val, X_test, .k) {
 
 
 impute_knn_dist <- function (X_train, y_train, X_val, y_val, X_test, .k) {
+  # For each object in the train data find its 5 closest neighbours and take take the weighted mean of their coefficients as predictions.
   res_tr = sapply(1:nrow(X_train), function (row_i) { 
     tmp = sapply(1:nrow(X_train), function (row_j) {
       if (row_i != row_j) { sqrt(sum((X_train[row_i, ] - X_train[row_j, ]) ^ 2)) } 
@@ -392,6 +396,7 @@ impute_knn_dist <- function (X_train, y_train, X_val, y_val, X_test, .k) {
     mean((min(tmp[order(tmp)[1:.k]]) / tmp[order(tmp)[1:.k]]) ^ 2 * y_train[order(tmp)[1:.k]])
   })
   
+  # For each object in the validation data find its 5 closest neighbours in the training data and take the weighted mean of their coefficients as predictions.
   res_val = sapply(1:nrow(X_val), function (row_i) { 
     tmp = sapply(1:nrow(X_train), function (row_j) {
       sqrt(sum((X_val[row_i, ] - X_train[row_j, ]) ^ 2))
@@ -399,6 +404,7 @@ impute_knn_dist <- function (X_train, y_train, X_val, y_val, X_test, .k) {
     mean((min(tmp[order(tmp)[1:.k]]) / tmp[order(tmp)[1:.k]]) ^ 3 * y_train[order(tmp)[1:.k]])
   })
   
+  # Merge training and validation data and predict the final missing values.
   merged = rbind(X_train, X_val)
   merged_y = c(y_train, y_val)
   imp_tst = sapply(1:nrow(X_test), function (row_i) { 
@@ -413,6 +419,7 @@ impute_knn_dist <- function (X_train, y_train, X_val, y_val, X_test, .k) {
 
 
 impute_reg <- function (X_train, y_train, X_val, y_val, X_test) {
+  # Build the regression model on the train data in order to compute error on the training data
   model = lm(aa_data$y ~ ., data = data.frame(aa_data$X))
   
   X_df = data.frame(X_train)
@@ -420,15 +427,45 @@ impute_reg <- function (X_train, y_train, X_val, y_val, X_test) {
     predict(model, X_df[row_i, ])
   })
   
+  # Compute error on the validation data
   X_df = data.frame(X_val)
   res_val = sapply(1:nrow(X_val), function (row_i) { 
     predict(model, X_df[row_i, ])
   })
   
+  # Build the model on the merged train / validation datasets in order to predict the missing values
   merged = rbind(X_train, X_val)
   merged_y = c(y_train, y_val)
   X_df = data.frame(merged)
   model = lm(merged_y ~ ., data = X_df)
+  imp_tst = sapply(1:nrow(X_test), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  list(res_tr, res_val, imp_tst)
+}
+
+
+impute_reg_int <- function (X_train, y_train, X_val, y_val, X_test) {
+  # Build the regression model on the train data in order to compute error on the training data
+  model = lm(aa_data$y ~ .^2, data = data.frame(aa_data$X))
+  
+  X_df = data.frame(X_train)
+  res_tr = sapply(1:nrow(X_train), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  # Compute error on the validation data
+  X_df = data.frame(X_val)
+  res_val = sapply(1:nrow(X_val), function (row_i) { 
+    predict(model, X_df[row_i, ])
+  })
+  
+  # Build the model on the merged train / validation datasets in order to predict the missing values
+  merged = rbind(X_train, X_val)
+  merged_y = c(y_train, y_val)
+  X_df = data.frame(merged)
+  model = lm(merged_y ~ .^2, data = X_df)
   imp_tst = sapply(1:nrow(X_test), function (row_i) { 
     predict(model, X_df[row_i, ])
   })
@@ -468,6 +505,7 @@ imp_res[["dist_1"]] = eval_model(aa_data, impute_knn_dist, .k = 1)
 imp_res[["dist_3"]] = eval_model(aa_data, impute_knn_dist, .k = 3)
 imp_res[["dist_5"]] = eval_model(aa_data, impute_knn_dist, .k = 5)
 imp_res[["reg"]] = eval_model(aa_data, impute_reg)
+imp_res[["reg_int"]] = eval_model(aa_data, impute_reg_int)
 imp_res = melt(imp_res)
 colnames(imp_res) = c("val", "data", "app")
 qplot(x = data, y = val, fill = app, data = imp_res, geom = "boxplot") + theme_bw()
@@ -481,7 +519,7 @@ melted[,1] = as.character(melted[,1])
 melted[,2] = as.character(melted[,2])
 test_data = melted[is.na(melted[,3]), ]
 
-imputed = impute_reg(aa_data$X[aa_data$train[[1]], ],
+imputed = impute_reg_int(aa_data$X[aa_data$train[[1]], ],
                           aa_data$y[aa_data$train[[1]]],
                           aa_data$X[aa_data$val[[1]], ],
                           aa_data$y[aa_data$val[[1]]],
@@ -572,6 +610,7 @@ imp_res[["dist_1"]] = eval_model(aa_data, impute_knn_dist, .k = 1)
 imp_res[["dist_3"]] = eval_model(aa_data, impute_knn_dist, .k = 3)
 imp_res[["dist_5"]] = eval_model(aa_data, impute_knn_dist, .k = 5)
 imp_res[["reg"]] = eval_model(aa_data, impute_reg)
+imp_res[["reg_int"]] = eval_model(aa_data, impute_reg_int)
 imp_res = melt(imp_res)
 colnames(imp_res) = c("val", "data", "app")
 qplot(x = data, y = val, fill = app, data = imp_res, geom = "boxplot") + theme_bw()
@@ -585,7 +624,7 @@ melted[,1] = as.character(melted[,1])
 melted[,2] = as.character(melted[,2])
 test_data = melted[is.na(melted[,3]), ]
 
-imputed = impute_reg(aa_data$X[aa_data$train[[1]], ],
+imputed = impute_reg_int(aa_data$X[aa_data$train[[1]], ],
                           aa_data$y[aa_data$train[[1]]],
                           aa_data$X[aa_data$val[[1]], ],
                           aa_data$y[aa_data$val[[1]]],
