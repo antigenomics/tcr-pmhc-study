@@ -43,6 +43,10 @@ def onehot_omega(df, left_window, right_window, max_pos):
     return X, y
 
 
+def window_to_seq(X, left_window, right_window, max_pos):
+    return X.reshape((X.shape[0], (left_window+right_window+1), len(CHARS)))
+
+
 def scale_data(df, how, scale):
     if how == "col":
         for i in range(4, 16):
@@ -61,3 +65,20 @@ def scale_data(df, how, scale):
             print("Unknown parameter", scale)
     else:
         print("Unknown parameter", how)
+        
+        
+def abs_to_diff(y, max_pos):
+    ynew = np.zeros(((y.shape[0] // max_pos) * (max_pos-1), 1))
+    for i in range(0, y.shape[0], max_pos):
+        ynew[i:i+max_pos-1,:] = y[i+1:i+max_pos,:] - y[i:i_max_pos-1,:]
+    return ynew
+        
+
+def diff_to_abs(y, max_pos):
+    ynew = np.zeros(((y.shape[0] // (max_pos - 1)) * max_pos, 1))
+    k = 0
+    for i in range(0, y.shape[0], max_pos-1):
+        ynew[i+k] = 0
+        ynew[i:i+max_pos-1,:] = y[i+1:i+max_pos,:] - y[i:i_max_pos-1,:]
+        k += 1
+    return ynew
