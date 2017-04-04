@@ -135,11 +135,14 @@ def train_model(max_pos, n_clust, coord, layers,
                 n_epochs, 
                 hist, model_list, 
                 how = "no", scale = "no", 
-                features = "onehot", model_type = "dense"):
+                features = "onehot", model_type = "dense", fading = False):
     model_name = model_type + ".l" + str(left_window) + "_r" + str(right_window) + "." + "-".join(map(str, layers)) + "." + how + "_" + scale + "." + features
 
     if n_clust > 0:
-        model_name += ".clust_" + str(n_clust)
+        if fading:
+            model_name += ".clust.fade_" + str(n_clust)
+        else:
+            model_name += ".clust_" + str(n_clust)
     
     if model_name not in hist:
         print(model_name, end = "\t")
@@ -160,50 +163,64 @@ def train_model(max_pos, n_clust, coord, layers,
         #
         # Extract feactures
         #
+        input_shape = (0,)
         if features == "onehot":
             coord_fun = onehot
         elif features == "omega":
             coord_fun = onehot_omega
+        elif features == "twohot":
+            coord_fun = twohot_omega
         else:
             print("Unknown parameter", features)
             return 0
         
-        X_can, y_can = coord_fun(df_can, left_window, right_window, max_pos)
-        X_cdr, y_cdr = coord_fun(df_cdr, left_window, right_window, max_pos)        
+        for_rnn = False
+        if model_type in ["gru", "lstm"]:
+            for_rnn = True
+        
+        X_can, y_can = coord_fun(df_can, left_window, right_window, max_pos, for_rnn)
+        X_cdr, y_cdr = coord_fun(df_cdr, left_window, right_window, max_pos, for_rnn)        
 
         #
         # Prepare to build the model
         #
         if model_type == "dense":
             model_fun = dense_model
+            input_shape = (len(CHARS)*(right_window+left_window+1),)
             
         elif model_type == "dense_pos":
             model_fun = dense_pos_model
+            input_shape = (len(CHARS)*(right_window+left_window+1),)
+            
             # add positions
             X_can = [X_can, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_can.shape[0])])]
             X_cdr = [X_cdr, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_cdr.shape[0])])]
             
         elif model_type == "dense_poslen":
             model_fun = dense_poslen_model
+            input_shape = (len(CHARS)*(right_window+left_window+1),)
+            
             # add positions and lengths
             X_can = [X_can, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_can.shape[0])]), np.full((X_can.shape[0],1), max_pos)]
             X_cdr = [X_cdr, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_cdr.shape[0])]), np.full((X_cdr.shape[0],1), max_pos)]
 
         elif model_type in ["gru", "lstm"]:
             model_fun = rnn_model
-            X_can = window_to_seq(X_can, left_window, right_window, max_pos)
-            X_cdr = window_to_seq(X_cdr, left_window, right_window, max_pos)
+            input_shape = (right_window+left_window+1, len(CHARS))
         else:
             print("Unknown parameter", coord_fun)
             return 0
+        
+        if features == "twohot":
+            input_shape = (right_window+left_window, 2*len(CHARS))
         
         #
         # Build the model
         #
         if model_type in ["dense", "dense_pos", "dense_poslen"]:
-            model = model_fun((len(CHARS)*(right_window+left_window+1),), 1, layers)
+            model = model_fun(input_shape, 1, layers)
         elif model_type in ["gru", "lstm"]:
-            model = model_fun((right_window+left_window+1, len(CHARS)), 1, layers, model_type)
+            model = model_fun(input_shape, 1, layers, model_type)
 
         reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=1, min_lr=0.0005)
         
@@ -222,9 +239,15 @@ def train_model(max_pos, n_clust, coord, layers,
             labels_cnt = Counter(labels)
             min_cluster, min_cluster_size = min(labels_cnt.items(), key = lambda x: x[1])
             
-            weight_vec = np.array([np.log(min_cluster_size) / np.log(labels_cnt[x]) for x in labels])
-            
-            hist_obj = model.fit(X_can, y_can, sample_weight=weight_vec, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
+            if fading:
+                weight_vec = np.array([np.log(min_cluster_size) / np.log(labels_cnt[x]) for x in labels])
+
+                hist_obj = model.fit(X_can, y_can, sample_weight=weight_vec, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
+            else:
+                weight_vec = np.array([np.log(min_cluster_size) / np.log(labels_cnt[x]) for x in labels])
+                weight_vec = np.exp(np.log(weight_vec) / (200 ** .5))
+
+                hist_obj = model.fit(X_can, y_can, sample_weight=weight_vec, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
         
         hist[model_name] = hist_obj
         model_list[model_name] = model

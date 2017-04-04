@@ -13,9 +13,13 @@ INDICES_CHAR = dict((i, c) for i, c in enumerate(CHARS))
 CHAR_ONE_HOT = dict((c, np.zeros((len(CHARS),), dtype=bool)) for c in CHARS)
 for c in CHAR_ONE_HOT:
     CHAR_ONE_HOT[c][CHAR_INDICES[c]] = 1
+    
+    
+def window_to_seq(X, left_window, right_window, max_pos):
+    return X.reshape((X.shape[0], (left_window+right_window+1), len(CHARS)))
 
 
-def onehot(df, left_window, right_window, max_pos):
+def onehot(df, left_window, right_window, max_pos, for_rnn = False):
     X = np.zeros((len(df)*max_pos, (left_window+right_window+1) * len(CHARS)), dtype=bool)
     y = np.zeros((len(df)*max_pos, 1), dtype=np.float32)
     for seq_i, seq in enumerate(df["sequence"]):
@@ -26,10 +30,14 @@ def onehot(df, left_window, right_window, max_pos):
                 if amb_aa != "X":
                     X[seq_i*max_pos + index, amb_pos*len(CHARS):(amb_pos+1)*len(CHARS)] = CHAR_ONE_HOT[amb_aa]
             y[seq_i*max_pos + index] = df[[4 + index]].iloc[seq_i]
+            
+    if for_rnn:
+        X = window_to_seq(X, left_window, right_window, max_pos)
+            
     return X, y
 
 
-def onehot_omega(df, left_window, right_window, max_pos):
+def onehot_omega(df, left_window, right_window, max_pos, for_rnn = False):
     X = np.zeros((len(df)*max_pos, (left_window+right_window+1) * len(CHARS)), dtype=bool)
     y = np.zeros((len(df)*max_pos, 1), dtype=np.float32)
     for seq_i, seq in enumerate(df["sequence"]):
@@ -40,11 +48,30 @@ def onehot_omega(df, left_window, right_window, max_pos):
                 if amb_aa != "X":
                     X[seq_i*max_pos + index, amb_pos*len(CHARS):(amb_pos+1)*len(CHARS)] = CHAR_ONE_HOT[amb_aa]
             y[seq_i*max_pos + index] = df[[4 + index]].iloc[seq_i]
+    
+    if for_rnn:
+        X = window_to_seq(X, left_window, right_window, max_pos)
+        
     return X, y
 
 
-def window_to_seq(X, left_window, right_window, max_pos):
-    return X.reshape((X.shape[0], (left_window+right_window+1), len(CHARS)))
+def twohot_omega(df, left_window, right_window, max_pos, for_rnn = True):
+    X = np.zeros((len(df)*max_pos, left_window+right_window, len(CHARS)*2), dtype=bool)
+    y = np.zeros((len(df)*max_pos, 1), dtype=np.float32)
+    for seq_i, seq in enumerate(df["sequence"]):
+        seq = seq[len(seq) - left_window : len(seq)] + seq + seq[:right_window]
+        for index, target_pos in enumerate(range(left_window + 1, len(seq) - right_window)):
+            target_aa = seq[target_pos]
+            
+            k = 0
+            for amb_pos, amb_aa in enumerate(seq[target_pos-left_window : target_pos+right_window+1]):
+                if amb_pos + left_window != target_pos:
+                    X[seq_i*max_pos + index, amb_pos - k, :] = np.vstack([CHAR_ONE_HOT[amb_aa].reshape(20,1), CHAR_ONE_HOT[target_aa].reshape(20,1)]).reshape((40,))
+                else:
+                    k += 1
+            
+            y[seq_i*max_pos + index] = df[[4 + index]].iloc[seq_i]
+    return X, y
 
 
 def scale_data(df, how, scale):

@@ -1,4 +1,8 @@
+from __future__ import division
+
+import numpy as np
 import pandas as pd
+import scipy.stats as stats
 
 from sklearn.metrics import mean_squared_error
 
@@ -55,3 +59,14 @@ def get_true_pred_all(filepath, scaler, model, l, r, max_pos, coord_fun = onehot
 def tr_pred_all(filepath, scaler, model, coord_fun = onehot):
     y_tr, y_pr = get_true_pred_all(filepath, scaler, model, l, r, max_pos, coord_fun)
     return mean_squared_error(y_tr, y_pr)
+
+
+def bootstrap_cdr(model, X, max_pos, n = 10000):
+    n_objects = X.shape[0] // max_pos
+    res = []
+    for i in range(n):
+        inds = np.random.randint(0, 10, 20)
+        res.append(model.evaluate(X[inds], y[inds], verbose=0))
+    return res
+    res = np.array(res)
+    return res.mean(), stats.t.interval(0.95, len(res)-1, loc=np.mean(res), scale=st.sem(res))
