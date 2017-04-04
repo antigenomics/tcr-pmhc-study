@@ -6,7 +6,7 @@ import scipy.stats as stats
 
 from sklearn.metrics import mean_squared_error
 
-from preprocess import *
+from .preprocess import *
 
 
 def get_true_pred_col(filepath, scaler, model, l, r, max_pos, coord_fun = onehot):
@@ -61,12 +61,17 @@ def tr_pred_all(filepath, scaler, model, coord_fun = onehot):
     return mean_squared_error(y_tr, y_pr)
 
 
-def bootstrap_cdr(model, X, max_pos, n = 10000):
-    n_objects = X.shape[0] // max_pos
+def bootstrap_cdr(model, X, y, max_pos, n = 1000):
+    if type(X) is list:
+        n_objects = X[0].shape[0] // max_pos
+    else:
+        n_objects = X.shape[0] // max_pos
     res = []
     for i in range(n):
         inds = np.random.randint(0, 10, 20)
-        res.append(model.evaluate(X[inds], y[inds], verbose=0))
+        if type(X) is list:
+            Xnew = [x[inds] for x in X]
+            res.append(model.evaluate(Xnew, y[inds], verbose=0))
+        else:
+            res.append(model.evaluate(X[inds], y[inds], verbose=0))
     return res
-    res = np.array(res)
-    return res.mean(), stats.t.interval(0.95, len(res)-1, loc=np.mean(res), scale=st.sem(res))

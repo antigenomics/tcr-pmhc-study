@@ -10,6 +10,7 @@ from keras.callbacks import ReduceLROnPlateau
 from sklearn.cluster import MiniBatchKMeans
 
 from .preprocess import *
+from .eval import *
 
 
 def dense_model(shape, output, h_units = [256, 128, 64]):  
@@ -133,7 +134,7 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
 def train_model(max_pos, n_clust, coord, layers, 
                 left_window, right_window, 
                 n_epochs, 
-                hist, model_list, 
+                hist, model_list, df_loss,
                 how = "no", scale = "no", 
                 features = "onehot", model_type = "dense", fading = False):
     model_name = model_type + ".l" + str(left_window) + "_r" + str(right_window) + "." + "-".join(map(str, layers)) + "." + how + "_" + scale + "." + features
@@ -252,9 +253,13 @@ def train_model(max_pos, n_clust, coord, layers,
         hist[model_name] = hist_obj
         model_list[model_name] = model
         
-        print(hist_obj.history["val_loss"][-1])
+        print(hist_obj.history["val_loss"][-1], end="\t")
         
-        return model
+        boot_loss_vec = bootstrap_cdr(model_list[model_name], X_cdr, y_cdr, 12)
+        df_new = pd.DataFrame({"val_loss": boot_loss_vec, "model": model_name})
+        
+        print("(", np.mean(boot_loss_vec), ")")
+        
+        return model, pd.concat([df_loss, df_new])
     else:
-        print(model_name, "- return the old model")
-        return model_list[model_name]
+        return model_list[model_name], None
