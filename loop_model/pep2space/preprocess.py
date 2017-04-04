@@ -68,17 +68,18 @@ def scale_data(df, how, scale):
         
         
 def abs_to_diff(y, max_pos):
-    ynew = np.zeros(((y.shape[0] // max_pos) * (max_pos-1), 1))
+    # We suppose that the first position was zero
+    ynew = np.zeros(y.shape)
     for i in range(0, y.shape[0], max_pos):
-        ynew[i:i+max_pos-1,:] = y[i+1:i+max_pos,:] - y[i:i_max_pos-1,:]
+        ynew[i] = y[i]
+        ynew[i+1:i+max_pos-1,:] = y[i+2:i+max_pos,:] - y[i+1:i_max_pos-1,:]
     return ynew
         
 
 def diff_to_abs(y, max_pos):
-    ynew = np.zeros(((y.shape[0] // (max_pos - 1)) * max_pos, 1))
-    k = 0
-    for i in range(0, y.shape[0], max_pos-1):
-        ynew[i+k] = 0
-        ynew[i:i+max_pos-1,:] = y[i+1:i+max_pos,:] - y[i:i_max_pos-1,:]
-        k += 1
+    ynew = np.zeros(y.shape)
+    for i in range(0, y.shape[0], max_pos):
+        ynew[i] = y[i]
+        ynew[i+1] = y[i] + y[i+1]
+        ynew[i+1:i+max_pos,:] = y[i+1:i+max_pos-1,:] + y[i+2:i+max_pos,:]
     return ynew
