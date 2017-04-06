@@ -61,17 +61,22 @@ def tr_pred_all(filepath, scaler, model, coord_fun = onehot):
     return mean_squared_error(y_tr, y_pr)
 
 
-def bootstrap_cdr(model, X, y, max_pos, n = 1000):
+def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
     if type(X) is list:
         n_objects = X[0].shape[0] // max_pos
     else:
         n_objects = X.shape[0] // max_pos
     res = []
     for i in range(n):
-        inds = np.random.randint(0, 10, 20)
+        inds = np.random.randint(0, n_objects, n_objects)
+        to_take = []
+        for ind in inds:
+            to_take.extend(range(ind * max_pos, (ind + 1) * max_pos))
+            
+        ynew = y[to_take]
         if type(X) is list:
-            Xnew = [x[inds] for x in X]
-            res.append(model.evaluate(Xnew, y[inds], verbose=0))
+            Xnew = [x[to_take] for x in X]
         else:
-            res.append(model.evaluate(X[inds], y[inds], verbose=0))
+            Xnew = X[to_take]
+        res.append(mean_squared_error(model.predict(Xnew), ynew))
     return res
