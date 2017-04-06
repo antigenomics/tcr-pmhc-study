@@ -1,0 +1,312 @@
+---
+title: "TCR-only contact residue model (1D TCR hotspot model)"
+output:
+  html_document:
+    code_folding: hide
+  html_notebook: default
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(RColorBrewer)
+library(multcomp)
+library(mgcv)
+```
+
+Load data
+
+```{r}
+df = read.table("../result/structure.txt", header=T, sep="\t") %>%
+  filter(tcr_region %in% c("CDR1", "CDR2", "CDR3") &
+         !is.na(energy)) %>%
+  droplevels()
+  
+df$tcr_chain = as.factor(substr(as.character(df$tcr_v_allele), 1, 3))
+df$contact = with(df, distance <= 4.5 & energy < 0)
+df$pos_tcr_c = with(df, pos_tcr - round((len_tcr - 1)/2))
+
+summary(df)
+```
+
+Filter non-bound complexes
+
+```{r}
+df.dist = df %>%
+  group_by(pdb_id, tcr_chain, tcr_region, mhc_type) %>%
+  summarize(min_dist = min(distance_CA))
+
+ggplot(df.dist, aes(x=pdb_id, y = min_dist, color = paste(tcr_chain, tcr_region))) +
+  geom_point() +
+  coord_flip() +
+  facet_wrap(~mhc_type)
+
+good_pdb = subset(df.dist, min_dist<=25)$pdb_id
+
+ggplot(subset(df.dist, min_dist<=25), aes(x=pdb_id, y = min_dist, color = paste(tcr_chain, tcr_region))) +
+  geom_point() +
+  coord_flip() +
+  facet_wrap(~mhc_type)
+
+df = df %>% filter(pdb_id %in% good_pdb) %>%
+  droplevels()
+```
+
+## EDA
+
+Contact counts. Distribution of contacts per residue for AG and TCR/CDRx
+
+```{r}
+df.contact = df %>%
+  group_by(pdb_id, tcr_chain, tcr_region, mhc_type, len_tcr, pos_tcr) %>%
+  summarize(contacts = sum(contact))
+
+df.contact.ag = df %>%
+  group_by(pdb_id, mhc_type, len_antigen, pos_antigen) %>%
+  summarize(contacts = sum(contact))
+
+colnames(df.contact.ag) = c("pdb_id", "mhc_type", "len_tcr", "pos_tcr", "contacts")
+df.contact.ag$tcr_chain = " "
+df.contact.ag$tcr_region = "AG"
+
+df.contact = rbind(df.contact, df.contact.ag)
+
+ggplot(df.contact, aes(x=contacts)) +
+  geom_area(aes(y = ..density..), stat = "bin", binwidth=1, fill = 'white', color = 'black') + 
+  scale_y_log10("# residues", breaks = c(0.001, 0.01, 0.1, 1), expand = c(0,0)) +
+  scale_x_continuous("Contacts per residue", breaks = 0:15, limits = c(0, 15), expand = c(0,0)) +
+  facet_grid(tcr_chain + tcr_region ~ mhc_type) +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = '#edf8b1'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+```
+
+Example of TCR and AG hotspot residues
+
+```{r}
+pdb_tcr_hotspot = (df.contact %>% filter(contacts == 6 & tcr_region == "CDR3" & tcr_chain == "TRB"))$pdb_id[1]
+
+ggplot(subset(df, pdb_id == pdb_tcr_hotspot), aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = pmax(-energy, 0)), cex=3, family="monospace") +
+  geom_point(aes(color=contact)) +
+  scale_color_manual(values = c(NA, "red")) +
+  scale_x_continuous(breaks=0:30) +
+  scale_y_continuous(breaks=0:30) +
+  scale_fill_gradientn("E", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32), 
+                       trans = "log", na.value = "white", breaks = c(1,5,20)) +
+  facet_grid(tcr_chain~tcr_region, scales="free", space="free") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+
+pdb_ag_hotspot = (df.contact %>% filter(tcr_region == "AG" & contacts == 9))$pdb_id[1]
+
+ggplot(subset(df, pdb_id == pdb_ag_hotspot), aes(x=pos_tcr, y=pos_antigen)) +
+  geom_tile(fill=NA) +
+  geom_label(aes(label=paste(aa_tcr, aa_antigen, sep=":"), fill = pmax(-energy, 0)), cex=3, family="monospace") +
+  geom_point(aes(color=contact)) +
+  scale_color_manual(values = c(NA, "red")) +
+  scale_x_continuous(breaks=0:30) +
+  scale_y_continuous(breaks=0:30) +
+  scale_fill_gradientn("E", colors=colorRampPalette(brewer.pal(9, 'YlGnBu'))(32), 
+                       trans = "log", na.value = "white", breaks = c(1,5,20)) +
+  facet_grid(tcr_chain~tcr_region, scales="free", space="free") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+```
+
+Compute contact counts per residue
+
+```{r}
+df.tcr = df %>%
+  group_by(pdb_id, tcr_chain, tcr_region, mhc_type, aa_tcr, len_tcr, pos_tcr, pos_tcr_c) %>%
+  summarize(contacts_total = sum(contact),
+            energy_total = sum(contact * energy)) 
+df.tcr$pos_bin = cut(df.tcr$pos_tcr + 0.5 - df.tcr$len_tcr/2, 3)
+```
+
+Contacts profile
+
+```{r}
+ggplot(df.tcr, aes(x = pos_tcr_c, group = contacts_total, 
+                   fill = factor(contacts_total))) +
+  geom_histogram(binwidth = 1) +
+  facet_grid(mhc_type~tcr_chain+tcr_region, scales = "free_y") +
+  scale_x_continuous("Position relative to CDR center", limits=c(-9.5, 9.5), expand = c(0,0)) +
+  ylab("# residues") +
+  scale_fill_brewer("# contacts", palette = "YlGnBu") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+
+mdl_contact_region = glm(contacts_total ~ pos_bin + tcr_region + tcr_chain + mhc_type + 0, family = poisson, data = df.tcr)
+summary(mdl_contact_region)
+summary(glht(mdl_contact_region, mcp(pos_bin = "Tukey", tcr_region="Tukey", tcr_chain="Tukey", mhc_type="Tukey")))
+
+mdl_contact_region2 = glm(contacts_total ~ pos_bin + tcr_region * tcr_chain * mhc_type + 0, family = poisson, data = df.tcr)
+summary(mdl_contact_region2)
+af = anova(mdl_contact_region2, test = "Chisq")
+print(af)
+```
+
+Both position specific and amino-acid specific differences
+
+```{r}
+ggplot(df.tcr, aes(x = as.integer(pos_bin), group = contacts_total, 
+                   fill = factor(contacts_total))) +
+  geom_bar() +
+  facet_wrap(~aa_tcr, scales = "free") +
+  scale_x_continuous("CDR position bin", breaks = 1:3, limits=c(0.5,3.5), expand = c(0,0)) +
+  ylab("# residues") +
+  scale_fill_brewer("# contacts", palette = "YlGnBu") +
+  theme_bw() +
+  theme(panel.background = element_rect(fill = 'white'),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+
+
+mdl_contact_aa = glm(contacts_total ~ pos_bin * aa_tcr, family = poisson, data = df.tcr)
+summary(mdl_contact_aa)
+# The table will optionally contain test statistics (and P values) comparing the reduction in deviance for the row to the residuals.
+# For models with known dispersion (e.g., binomial and Poisson fits) the chi-squared test is most appropriate.
+af = anova(mdl_contact_aa, test = "Chisq")
+print(af)
+```
+
+Generalized additive model
+
+```{r}
+kidera = t(data.frame(lapply(strsplit("A,-1.56,-1.67,-0.97,-0.27,-0.93,-0.78,-0.2,-0.08,0.21,-0.48;R,0.22,1.27,1.37,1.87,-1.7,0.46,0.92,-0.39,0.23,0.93;N,1.14,-0.07,-0.12,0.81,0.18,0.37,-0.09,1.23,1.1,-1.73;D,0.58,-0.22,-1.58,0.81,-0.92,0.15,-1.52,0.47,0.76,0.7;C,0.12,-0.89,0.45,-1.05,-0.71,2.41,1.52,-0.69,1.13,1.1;Q,-0.47,0.24,0.07,1.1,1.1,0.59,0.84,-0.71,-0.03,-2.33;E,-1.45,0.19,-1.61,1.17,-1.31,0.4,0.04,0.38,-0.35,-0.12;G,1.46,-1.96,-0.23,-0.16,0.1,-0.11,1.32,2.36,-1.66,0.46;H,-0.41,0.52,-0.28,0.28,1.61,1.01,-1.85,0.47,1.13,1.63;I,-0.73,-0.16,1.79,-0.77,-0.54,0.03,-0.83,0.51,0.66,-1.78;L,-1.04,0,-0.24,-1.1,-0.55,-2.05,0.96,-0.76,0.45,0.93;K,-0.34,0.82,-0.23,1.7,1.54,-1.62,1.15,-0.08,-0.48,0.6;M,-1.4,0.18,-0.42,-0.73,2,1.52,0.26,0.11,-1.27,0.27;F,-0.21,0.98,-0.36,-1.43,0.22,-0.81,0.67,1.1,1.71,-0.44;P,2.06,-0.33,-1.15,-0.75,0.88,-0.45,0.3,-2.3,0.74,-0.28;S,0.81,-1.08,0.16,0.42,-0.21,-0.43,-1.89,-1.15,-0.97,-0.23;T,0.26,-0.7,1.21,0.63,-0.1,0.21,0.24,-1.15,-0.56,0.19;W,0.3,2.1,-0.72,-1.57,-1.16,0.57,-0.48,-0.4,-2.3,-0.6;Y,1.38,1.48,0.8,-0.56,0,-0.68,-0.31,1.03,-0.05,0.53;V,-0.74,-0.71,2.04,-0.4,0.5,-0.81,-1.07,0.06,-0.46,0.65", ";")[[1]], function (x) { strsplit(x, ",")[[1]] } ))); kidera = data.frame(kidera[,1], apply(kidera[, 2:11], 2, as.numeric)); kidera[,1] = as.character(kidera[,1]); row.names(kidera) = kidera[,1]; names(kidera) = c("aa_tcr", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10")
+```
+
+## Modelling
+
+Prepare data
+
+```{r}
+df.pred = merge(df.tcr, kidera)
+df.pred$tcr_region = as.factor(df.pred$tcr_region)
+df.pred$tcr_chain = as.factor(df.pred$tcr_chain)
+df.pred$mhc_type = as.factor(df.pred$mhc_type)
+df.pred$aa_tcr = as.factor(df.pred$aa_tcr)
+```
+
+### Contact number
+
+Check distribution
+
+```{r}
+ggplot(df.pred, aes(contacts_total)) +
+  geom_histogram(binwidth = 1) + theme_bw()
+```
+
+Contact GAM
+
+```{r}
+mdl_contact <- gam(contacts_total ~ tcr_region + s(len_tcr, pos_tcr) +
+             s(f1) + s(f2) + s(f3) + s(f4) + s(f5) + s(f6) + s(f7) + s(f8) + s(f9) + s(f10) + 0, 
+           family = ziP(),
+           data = df.pred)
+
+summary(mdl_contact)
+
+plot(mdl_contact)
+
+af = anova(mdl_contact, test = "Chisq")
+print(af)
+```
+
+Check chain/region/MHC independence
+
+```{r}
+mdl_contact_r <- gam(contacts_total ~ tcr_chain * tcr_region * mhc_type + s(len_tcr, pos_tcr) +
+             s(f1) + s(f2) + s(f3) + s(f4) + s(f5) + s(f6) + s(f7) + s(f8) + s(f9) + s(f10), 
+           family = ziP(),
+           data = df.pred)
+
+summary(mdl_contact_r)
+
+af = anova(mdl_contact_r, test = "Chisq")
+print(af)
+```
+
+### Energies
+
+Check distribution
+
+```{r}
+ggplot(df %>% filter(contact), aes(energy)) +
+  geom_histogram(binwidth = 1) + theme_bw()
+```
+
+Energy GAM
+
+```{r}
+df.energy = merge(df %>% filter(contact),
+                  kidera)
+
+mdl_energy <- gam(-energy ~ s(pos_tcr_c) +
+                    s(f1) + s(f2) + s(f3) + s(f4) + s(f5) + s(f6) + s(f7) + s(f8) + s(f9) + s(f10), 
+                  family = nb(),
+                  data = df.energy)
+
+summary(mdl_energy)
+
+plot(mdl_energy)
+
+af = anova(mdl_energy, test = "Chisq")
+print(af)
+```
+
+## Testing
+
+Prepare test dataset from training dataset
+
+```{r}
+df.pred = as.data.frame(df.pred)
+df.pred$contacts_pred = as.vector(exp(predict.gam(mdl_contact, df.pred)))
+df.pred$energy_pred = -as.vector(exp(predict.gam(mdl_energy, df.pred))) * df.pred$contacts_pred
+
+df.pred.summary = df.pred %>%
+  group_by(pdb_id, mhc_type, tcr_chain, tcr_region) %>%
+  summarize(contacts_total = sum(contacts_total),
+            energy_total = sum(energy_total),
+            energy_total_pred = sum(energy_pred),
+            contacts_total_pred = sum(contacts_pred))
+
+str(df.pred.summary)
+str(predict.gam(mdl_energy, df.pred))
+```
+
+Total number of contacts fit
+
+```{r}
+ggplot(df.pred.summary, aes(x = contacts_total, y = contacts_total_pred)) +
+  geom_point(aes(fill = tcr_chain, color = tcr_chain, shape = mhc_type)) +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
+  scale_shape_manual("MHC class", values = c(24, 25)) +
+  scale_fill_brewer(guide = F, palette = "Set1") +
+  scale_color_brewer("TCR chain", palette = "Set1") +
+  facet_grid(.~tcr_region) +
+  xlab("Total number of contacts") +
+  ylab("Predicted number of contacts") +
+  theme_bw()
+```
+
+Total energy fit
+
+```{r}
+ggplot(df.pred.summary, aes(x = energy_total, y = energy_total_pred)) +
+  geom_point(aes(fill = tcr_chain, color = tcr_chain, shape = mhc_type)) +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
+  scale_shape_manual("MHC class", values = c(24, 25)) +
+  scale_fill_brewer(guide = F, palette = "Set1") +
+  scale_color_brewer("TCR chain", palette = "Set1") +
+  facet_grid(.~tcr_region) +
+  xlab("Total energy") +
+  ylab("Predicted total energy") +
+  theme_bw()
+```
+
+
