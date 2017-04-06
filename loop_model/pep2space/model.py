@@ -140,7 +140,7 @@ def diff_model(shape, output, h_units):
     shared_model = Sequential()
     shared_model.add(GRU(h_units[0][0], kernel_initializer="he_normal", recurrent_initializer="he_normal", 
                        implementation=2, bias_initializer="he_normal", dropout=.2, recurrent_dropout=.2, 
-                       unroll=True))
+                       unroll=True, input_shape = shape))
     
     for num in h_units[0][1:]:
         shared_model.add(Dense(num))
@@ -158,17 +158,19 @@ def diff_model(shape, output, h_units):
     
     merged = concatenate([pred_forw, pred_back])
     
-    for num in h_units[1]:
-        merged = concatenate([merged, inp_pos, inp_len])
-        merged = Dense(num)(merged)
-        merged = BatchNormalization()(merged)
-        merged = PReLU()(merged)
-        merged = Dropout(.3)(merged)
+    # for num in h_units[1]:
+    #     merged = concatenate([merged, inp_pos])
+    #     merged = Dense(num)(merged)
+    #     merged = BatchNormalization()(merged)
+    #     merged = PReLU()(merged)
+    #     merged = Dropout(.3)(merged)
     
     merged = Dense(1)(merged)
     pred_coord = PReLU()(merged)
     
-    model = Model(inputs=[inp_forw, inp_back], outputs=[pred_diff_forw, pred_diff_back, pred_coord])
+    model = Model(inputs=[inp_forw, inp_back], outputs=[pred_forw, pred_back, pred_coord])
+    
+    print(model.summary())
     
     model.compile(optimizer="nadam", loss="mse")
     
