@@ -225,9 +225,6 @@ def train_model(max_pos, n_clust, coord, layers,
         
         X_can, y_can = coord_fun(df_can, left_window, right_window, max_pos, for_rnn)
         X_cdr, y_cdr = coord_fun(df_cdr, left_window, right_window, max_pos, for_rnn)
-        
-#         y_can = abs_to_diff(y_can, max_pos)
-#         y_cdr = abs_to_diff(y_cdr, max_pos)
 
         #
         # Prepare to build the model

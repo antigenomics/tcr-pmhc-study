@@ -106,7 +106,8 @@ def abs_to_diff(y, max_pos, rev = False):
             ynew[i] = y[i]
             ynew[i+1 : i+max_pos] = y[i+1 : i+max_pos] - y[i : i+max_pos-1]
         else:
-            pass
+            ynew[i : i+max_pos-1] = y[i : i+max_pos-1] - y[i+1 : i+max_pos]
+            ynew[i+max_pos-1] = y[i+max_pos-1]
     return ynew
         
 
@@ -118,5 +119,7 @@ def diff_to_abs(y, max_pos, rev = False):
             for j in range(1, max_pos):
                 ynew[i+j] = y[i+j] + ynew[i+j-1]
         else:
-            pass
+            ynew[i+max_pos-1] = y[i+max_pos-1]
+            for j in range(max_pos-1, 0, -1):
+                ynew[i+j-1] = y[i+j-1] + ynew[i+j]
     return ynew
