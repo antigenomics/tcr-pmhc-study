@@ -134,7 +134,7 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
 def diff_model(shape, output, h_units):
     inp_forw = Input(shape = shape)
     inp_back = Input(shape = shape)
-    inp_pos = Input((1,))
+    inp_pos = Input(shape = (1,))
     # inp_len = Input((1,)) # one hot encoding for length
     
     shared_model = Sequential()
@@ -150,27 +150,25 @@ def diff_model(shape, output, h_units):
     
     diff_forw = shared_model(inp_forw)
     diff_forw = Dense(1)(diff_forw)
-    pred_forw = PReLU()(diff_forw)
+    pred_forw = PReLU(name="pred_forw")(diff_forw)
     
     diff_back = shared_model(inp_back)
     diff_back = Dense(1)(diff_back)
-    pred_back = PReLU()(diff_back)
+    pred_back = PReLU(name="pred_back")(diff_back)
     
     merged = concatenate([pred_forw, pred_back])
     
-    # for num in h_units[1]:
-    #     merged = concatenate([merged, inp_pos])
-    #     merged = Dense(num)(merged)
-    #     merged = BatchNormalization()(merged)
-    #     merged = PReLU()(merged)
-    #     merged = Dropout(.3)(merged)
+    for num in h_units[1]:
+        merged = concatenate([merged, inp_pos])
+        merged = Dense(num)(merged)
+        merged = BatchNormalization()(merged)
+        merged = PReLU()(merged)
+        merged = Dropout(.3)(merged)
     
     merged = Dense(1)(merged)
-    pred_coord = PReLU()(merged)
+    pred_coord = PReLU(name="pred_final")(merged)
     
-    model = Model(inputs=[inp_forw, inp_back], outputs=[pred_forw, pred_back, pred_coord])
-    
-    print(model.summary())
+    model = Model(inputs=[inp_forw, inp_back, inp_pos], outputs=[pred_forw, pred_back, pred_coord])
     
     model.compile(optimizer="nadam", loss="mse")
     
