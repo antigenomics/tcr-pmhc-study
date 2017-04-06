@@ -103,19 +103,19 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
     
     if rnn_type.find("gru") != -1:  # TODO: change this to something more sane
         rnn_layer =  GRU(h_units[0], kernel_initializer="he_normal", recurrent_initializer="he_normal", 
-                       implementation=2, bias_initializer="he_normal",
-                       dropout=.2, recurrent_dropout=.2,
+                       implementation=2, bias_initializer="he_normal", dropout=.2, recurrent_dropout=.2,
                        unroll=True, input_shape=shape)
     elif rnn_type.find("lstm") != -1:
         rnn_layer = LSTM(h_units[0], kernel_initializer="he_normal", recurrent_initializer="he_normal", 
-                       implementation=2, bias_initializer="he_normal",
-                       dropout=.2, recurrent_dropout=.2,
+                       implementation=2, bias_initializer="he_normal", dropout=.2, recurrent_dropout=.2,
                        unroll=True, input_shape=shape)
     else:
         print("Can't find neither GRU not LSTM")
         return 0
     
     model.add(rnn_layer)
+    model.add(BatchNormalization())
+    model.add(PReLU())
     
     for num in h_units[1:]:
         model.add(Dense(num))
@@ -125,6 +125,50 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
         
     model.add(Dense(output))
     model.add(PReLU())
+    
+    model.compile(optimizer="nadam", loss="mse")
+    
+    return model
+
+
+def diff_model(shape, output, h_units):
+    inp_forw = Input(shape = shape)
+    inp_back = Input(shape = shape)
+    inp_pos = Input((1,))
+    # inp_len = Input((1,)) # one hot encoding for length
+    
+    shared_model = Sequential()
+    shared_model.add(GRU(h_units[0][0], kernel_initializer="he_normal", recurrent_initializer="he_normal", 
+                       implementation=2, bias_initializer="he_normal", dropout=.2, recurrent_dropout=.2, 
+                       unroll=True))
+    
+    for num in h_units[0][1:]:
+        shared_model.add(Dense(num))
+        shared_model.add(BatchNormalization())
+        shared_model.add(PReLU())
+        shared_model.add(Dropout(.3))
+    
+    diff_forw = shared_model(inp_forw)
+    diff_forw = Dense(1)(diff_forw)
+    pred_forw = PReLU()(diff_forw)
+    
+    diff_back = shared_model(inp_back)
+    diff_back = Dense(1)(diff_back)
+    pred_back = PReLU()(diff_back)
+    
+    merged = concatenate([pred_forw, pred_back])
+    
+    for num in h_units[1]:
+        merged = concatenate([merged, inp_pos, inp_len])
+        merged = Dense(num)(merged)
+        merged = BatchNormalization()(merged)
+        merged = PReLU()(merged)
+        merged = Dropout(.3)(merged)
+    
+    merged = Dense(1)(merged)
+    pred_coord = PReLU()(merged)
+    
+    model = Model(inputs=[inp_forw, inp_back], outputs=[pred_diff_forw, pred_diff_back, pred_coord])
     
     model.compile(optimizer="nadam", loss="mse")
     

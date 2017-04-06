@@ -37,8 +37,8 @@ def onehot(df, left_window, right_window, max_pos, for_rnn = False):
     return X, y
 
 
-def onehot_omega(df, left_window, right_window, max_pos, for_rnn = False):
-    X = np.zeros((len(df)*max_pos, (left_window+right_window+1) * len(CHARS)), dtype=bool)
+def onehot_omega(df, left_window, right_window, max_pos, for_rnn = False, add_pos = False, add_len = False):
+    X = np.zeros((len(df)*max_pos, (left_window+right_window+1+add_pos+add_len) * len(CHARS)), dtype=bool)
     y = np.zeros((len(df)*max_pos, 1), dtype=np.float32)
     for seq_i, seq in enumerate(df["sequence"]):
         seq = seq[len(seq) - left_window : len(seq)] + seq + seq[:right_window]
@@ -47,6 +47,10 @@ def onehot_omega(df, left_window, right_window, max_pos, for_rnn = False):
             for amb_pos, amb_aa in enumerate(seq[target_pos-left_window : target_pos+right_window+1]):
                 if amb_aa != "X":
                     X[seq_i*max_pos + index, amb_pos*len(CHARS):(amb_pos+1)*len(CHARS)] = CHAR_ONE_HOT[amb_aa]
+                    if add_pos:
+                        X[seq_i*max_pos + index, -1] = float(amb_pos) / max_pos
+                    # if add_len:
+                    #     X[seq_i*max_pos + index, -1] = max_pos # categotical
             y[seq_i*max_pos + index] = df[[4 + index]].iloc[seq_i]
     
     if for_rnn:
@@ -94,19 +98,25 @@ def scale_data(df, how, scale):
         print("Unknown parameter", how)
         
         
-def abs_to_diff(y, max_pos):
+def abs_to_diff(y, max_pos, rev = False):
     # We suppose that the first position was zero
     ynew = np.zeros(y.shape)
     for i in range(0, y.shape[0], max_pos):
-        ynew[i] = y[i]
-        ynew[i+1 : i+max_pos] = y[i+1 : i+max_pos] - y[i : i+max_pos-1]
+        if not rev:
+            ynew[i] = y[i]
+            ynew[i+1 : i+max_pos] = y[i+1 : i+max_pos] - y[i : i+max_pos-1]
+        else:
+            pass
     return ynew
         
 
-def diff_to_abs(y, max_pos):
+def diff_to_abs(y, max_pos, rev = False):
     ynew = np.zeros(y.shape)
     for i in range(0, y.shape[0], max_pos):
-        ynew[i] = y[i]
-        for j in range(1, max_pos):
-            ynew[i+j] = y[i+j] + ynew[i+j-1]
+        if not rev:
+            ynew[i] = y[i]
+            for j in range(1, max_pos):
+                ynew[i+j] = y[i+j] + ynew[i+j-1]
+        else:
+            pass
     return ynew
