@@ -123,3 +123,13 @@ def diff_to_abs(y, max_pos, rev = False):
             for j in range(max_pos-1, 0, -1):
                 ynew[i+j-1] = y[i+j-1] + ynew[i+j]
     return ynew
+
+
+def reverse_X(X):
+    """
+    Reverse each row in X for backward RNN.
+    """
+    Xnew = np.zeros(X.shape)
+    for i in range(X.shape[0]):
+        Xnew[i] = 
+    return Xnew
