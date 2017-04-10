@@ -131,7 +131,7 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
     return model
 
 
-def diff_model(shape, output, h_units):
+def delta_model(shape, output, h_units):
     inp_forw = Input(shape = shape)
     inp_back = Input(shape = shape)
     inp_pos = Input(shape = (1,))
