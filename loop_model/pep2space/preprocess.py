@@ -1,6 +1,10 @@
+from collections import Counter
+
 import pandas as pd
 import numpy as np
+
 from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler, minmax_scale, maxabs_scale
+from sklearn.cluster import MiniBatchKMeans
 
 
 #
@@ -145,3 +149,15 @@ def diff_to_abs(y, max_pos, rev = False):
             for j in range(max_pos-1, 0, -1):
                 ynew[i+j-1] = y[i+j-1] + ynew[i+j]
     return ynew
+
+
+def cluster(X, n_clust):
+    kmeans = MiniBatchKMeans(n_clust, batch_size=1000, n_init=10)
+            
+    kmeans.fit(X)
+    labels = kmeans.predict(X)
+
+    labels_cnt = Counter(labels)
+    min_cluster, min_cluster_size = min(labels_cnt.items(), key = lambda x: x[1])
+    
+    return labels, labels_cnt, min_cluster, min_cluster_size
