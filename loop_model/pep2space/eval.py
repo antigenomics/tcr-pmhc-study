@@ -6,6 +6,8 @@ import scipy.stats as stats
 
 from sklearn.metrics import mean_squared_error
 
+import keras.backend as K
+
 from .preprocess import *
 
 
@@ -61,6 +63,18 @@ def tr_pred_all(filepath, scaler, model, coord_fun = onehot):
     return mean_squared_error(y_tr, y_pr)
 
 
+def mean_sample_error(y_true, y_pred, max_pos):
+    return ((y_true.reshape((-1, max_pos)).sum(1) - y_pred.reshape((-1, max_pos)).sum(1)) ** 2).mean()
+
+
+# use decorators later
+def make_mean_sample_error(max_pos):
+    def mse(y_true, y_pred):
+        return K.mean(K.square(K.sum(K.reshape(y_true, (-1, max_pos)), 1) - K.sum(K.reshape(y_pred, (-1, max_pos)), 1)))
+        
+    return mse
+
+
 def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
     if type(X) is list:
         n_objects = X[0].shape[0] // max_pos
@@ -78,5 +92,5 @@ def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
             Xnew = [x[to_take] for x in X]
         else:
             Xnew = X[to_take]
-        res.append(mean_squared_error(model.predict(Xnew), ynew))
+        res.append(mean_sample_error(model.predict(Xnew), ynew, max_pos))
     return res
