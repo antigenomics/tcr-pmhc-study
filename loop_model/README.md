@@ -42,11 +42,25 @@ GRU models, 1500 iterations:
 
 ### 1.6. Difference among coordinates (left-to-right / right-ot-left directions)
 
+#### Naive prediction
+
 Due to the iterative nature the error is aggreageted through the sequence.
 
 <img src="pred/pred_x_diff_left_coords.png" width="80%">
 
 <img src="pred/pred_x_diff_right_coords.png" width="80%">
+
+
+#### 1.6.2. Ensembling
+
+Ensemble the predicted coordinates with `Bayesian Ridge`. Cross validation score (negative MSE): 
+
+```
+array([-0.0673693 , -0.1109571 , -0.39486038, -0.09391625, -0.02850241,
+       -0.13117736, -0.10696883, -0.18005811, -0.13272101, -0.20850138])
+```
+
+<img src="pred/pred_x_ensembling.png">
 
 
 ## 2. Amino acid transformations
