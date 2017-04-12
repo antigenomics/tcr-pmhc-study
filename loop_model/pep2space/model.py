@@ -2,12 +2,10 @@ from __future__ import print_function, division
 from collections import Counter
 
 from keras.models import Sequential, Model
-from keras.layers import Dense, Dropout, BatchNormalization, concatenate, Input, LSTM, GRU
+from keras.layers import Dense, Dropout, BatchNormalization, concatenate, Input, LSTM, GRU, Conv1D, add, Flatten
 from keras.layers.advanced_activations import PReLU
 from keras.optimizers import Nadam
 from keras.callbacks import ReduceLROnPlateau
-
-from sklearn.cluster import MiniBatchKMeans
 
 from .preprocess import *
 from .eval import *
@@ -96,7 +94,7 @@ def dense_poslen_model(shape, output, h_units):
     return model
 
 
-def rnn_model(shape, output, h_units, rnn_type = "gru"):
+def rnn_model(shape, output, h_units, rnn_type):
     # h_units[0] - number of units in RNN
     # rnn_type = ["lstm", "gru", "bilstm", "bigru"]
     model = Sequential()
@@ -126,12 +124,77 @@ def rnn_model(shape, output, h_units, rnn_type = "gru"):
     model.add(Dense(output))
     model.add(PReLU())
     
+    # model.compile(optimizer="nadam", loss=make_mean_sample_error(max_pos))
+    model.compile(optimizer="nadam", loss="mse")
+    
+    return model
+
+
+def cnn_pos_model(shape, output, h_units):
+    def res_block(prev_layer, shape):
+        branch = BatchNormalization()(prev_layer)
+        branch = PReLU()(branch)
+        branch = Conv1D(h_units[1], 1, kernel_initializer="he_normal")(branch)
+        
+        branch = BatchNormalization()(branch)
+        branch = PReLU()(branch)
+        branch = Conv1D(shape[1], 1, kernel_initializer="he_normal")(branch)
+        
+        return add([prev_layer, branch])
+    
+    # merged = []
+    # merged.append(concatenate([pep_in, len_in]))
+    
+    # pep_br = Dense(h_units[0])(merged[-1])
+    # pep_br = BatchNormalization()(pep_br)
+    # pep_br = PReLU()(pep_br)
+    # pep_br = Dropout(.3)(pep_br)
+    
+    # for num in h_units[1:]:
+    #     merged.append(concatenate([pep_br, len_in]))
+    #     pep_br = Dense(num)(merged[-1])
+    #     pep_br = BatchNormalization()(pep_br)
+    #     pep_br = PReLU()(pep_br)
+    #     pep_br = Dropout(.3)(pep_br)
+    
+    pep_in = Input(shape)
+    pos_in = Input((1,))
+    
+    pep_branch = res_block(pep_in, shape)
+    for ind in range(1, h_units[0]):
+        pep_branch = res_block(pep_branch, shape)
+        
+    pep_branch = Flatten()(pep_branch)
+    
+    merged = concatenate([pep_branch, pos_in])
+    
+    merged = Dense(64)(merged)
+    merged = BatchNormalization()(merged)
+    merged = PReLU()(merged)
+    merged = Dropout(.3)(merged)
+    
+    pred = Dense(output)(merged)
+    pred = PReLU()(pred)
+    
+    model = Model(inputs=[pep_in, pos_in], outputs=pred)
+    
     model.compile(optimizer="nadam", loss="mse")
     
     return model
 
 
 def delta_model(shape, output, h_units):
+    def _block(prev_layer, shape):
+        branch = BatchNormalization()(prev_layer)
+        branch = PReLU()(branch)
+        branch = Conv1D(192, 1, kernel_initializer="he_normal")(branch)
+        
+        branch = BatchNormalization()(branch)
+        branch = PReLU()(branch)
+        branch = Conv1D(shape[1], 1, kernel_initializer="he_normal")(branch)
+        
+        return add([prev_layer, branch])
+    
     inp_forw = Input(shape = shape)
     inp_back = Input(shape = shape)
     inp_pos = Input(shape = (1,))
@@ -220,7 +283,7 @@ def train_model(max_pos, n_clust, coord, layers,
             return 0
         
         for_rnn = False
-        if model_type in ["gru", "lstm"]:
+        if model_type in ["gru", "lstm", "cnn_pos"]:
             for_rnn = True
         
         X_can, y_can = coord_fun(df_can, left_window, right_window, max_pos, for_rnn)
@@ -252,6 +315,12 @@ def train_model(max_pos, n_clust, coord, layers,
         elif model_type in ["gru", "lstm"]:
             model_fun = rnn_model
             input_shape = (right_window+left_window+1, len(CHARS))
+        elif model_type in ["cnn_pos"]:
+            X_can = [X_can, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_can.shape[0])])]
+            X_cdr = [X_cdr, np.array([float((x % max_pos) + 1) / max_pos for x in range(X_cdr.shape[0])])]
+            
+            model_fun = cnn_pos_model
+            input_shape = (right_window+left_window+1, len(CHARS))
         else:
             print("Unknown parameter", coord_fun)
             return 0
@@ -264,33 +333,29 @@ def train_model(max_pos, n_clust, coord, layers,
         #
         if model_type in ["dense", "dense_pos", "dense_poslen"]:
             model = model_fun(input_shape, 1, layers)
-        elif model_type in ["gru", "lstm"]:
-            model = model_fun(input_shape, 1, layers, model_type)
+        elif model_type in ["gru", "lstm", "cnn_pos"]:
+            model = model_fun(input_shape, 1, layers)
 
         reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=1, min_lr=0.0005)
         
         if n_clust == 0:
             hist_obj = model.fit(X_can, y_can, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
         else:
-            kmeans = MiniBatchKMeans(n_clust, batch_size=1000, n_init=10)
-            
+            labels, labels_cnt, min_cluster, min_cluster_size = [], -1, -1, -1
             if model_type == "dense":
-                kmeans.fit(X_can)
-                labels = kmeans.predict(X_can)
-            else:
-                kmeans.fit(X_can[0])
-                labels = kmeans.predict(X_can[0])
-                
-            labels_cnt = Counter(labels)
-            min_cluster, min_cluster_size = min(labels_cnt.items(), key = lambda x: x[1])
+                labels, labels_cnt, min_cluster, min_cluster_size = cluster(y_can.reshape((-1, max_pos)), n_clust)
+            labels_new = []
+            for x in labels:
+                labels_new.extend([x] * max_pos)
+            labels = labels_new
             
             if fading:
                 weight_vec = np.array([np.log(min_cluster_size) / np.log(labels_cnt[x]) for x in labels])
+                weight_vec = np.exp(np.log(weight_vec) / (200 ** .5))
 
                 hist_obj = model.fit(X_can, y_can, sample_weight=weight_vec, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
             else:
                 weight_vec = np.array([np.log(min_cluster_size) / np.log(labels_cnt[x]) for x in labels])
-                weight_vec = np.exp(np.log(weight_vec) / (200 ** .5))
 
                 hist_obj = model.fit(X_can, y_can, sample_weight=weight_vec, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
         

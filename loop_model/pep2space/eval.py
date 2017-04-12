@@ -64,7 +64,7 @@ def tr_pred_all(filepath, scaler, model, coord_fun = onehot):
 
 
 def mean_sample_error(y_true, y_pred, max_pos):
-    return ((y_true.reshape((-1, max_pos)).sum(1) - y_pred.reshape((-1, max_pos)).sum(1)) ** 2).mean()
+    return np.abs(y_true.reshape((-1, max_pos)) - y_pred.reshape((-1, max_pos))).sum(1).mean()
 
 
 # use decorators later
@@ -92,5 +92,5 @@ def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
             Xnew = [x[to_take] for x in X]
         else:
             Xnew = X[to_take]
-        res.append(mean_sample_error(model.predict(Xnew), ynew, max_pos))
+        res.append(mean_squared_error(model.predict(Xnew), ynew))
     return res
