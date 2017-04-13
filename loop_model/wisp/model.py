@@ -336,7 +336,7 @@ def train_model(max_pos, n_clust, coord, layers,
         elif model_type in ["gru", "lstm", "cnn_pos"]:
             model = model_fun(input_shape, 1, layers)
 
-        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=1, min_lr=0.0005)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, cooldown=1, min_lr=0.001)
         
         if n_clust == 0:
             hist_obj = model.fit(X_can, y_can, batch_size=64, epochs=n_epochs, verbose=0, validation_data=(X_cdr, y_cdr), callbacks=[reduce_lr])
@@ -364,7 +364,7 @@ def train_model(max_pos, n_clust, coord, layers,
         
         print(hist_obj.history["val_loss"][-1], end="\t")
         
-        boot_loss_vec = bootstrap_cdr(model_list[model_name], X_cdr, y_cdr, 12)
+        boot_loss_vec = bootstrap_cdr(model_list[model_name], X_cdr, y_cdr, max_pos)
         df_new = pd.DataFrame({"val_loss": boot_loss_vec, "model": model_name})
         
         print("(", np.mean(boot_loss_vec), ")")

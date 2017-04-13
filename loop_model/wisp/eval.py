@@ -75,7 +75,7 @@ def make_mean_sample_error(max_pos):
     return mse
 
 
-def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
+def bootstrap_cdr(model, X, y, max_pos, n = 100, proc_y = lambda x: x):
     if type(X) is list:
         n_objects = X[0].shape[0] // max_pos
     else:
@@ -92,5 +92,5 @@ def bootstrap_cdr(model, X, y, max_pos, n = 1000, proc_y = lambda x: x):
             Xnew = [x[to_take] for x in X]
         else:
             Xnew = X[to_take]
-        res.append(mean_sample_error(model.predict(Xnew), ynew))
+        res.append(mean_sample_error(model.predict(Xnew), ynew, max_pos))
     return res
