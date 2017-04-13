@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay (mikhail.shugay@gmail.com)
+ * Copyright 2015-2017 Mikhail Shugay (mikhail.shugay@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,50 +13,21 @@
  * limitations under the License.
  */
 
-package annotation
-
 import org.biojava.nbio.structure.GroupType
 import org.biojava.nbio.structure.StructureIO
+import AnnotUtil.*
 
 @Grab(group = 'org.biojava', module = 'biojava-structure', version = '4.1.0')
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
-def aaConversions =
-        [
-                ("ALA"): "A",
-                ("ARG"): "R",
-                ("ASN"): "N",
-                ("ASP"): "D",
-                ("CYS"): "C",
-                ("GLN"): "Q",
-                ("GLU"): "E",
-                ("GLY"): "G",
-                ("HIS"): "H",
-                ("ILE"): "I",
-                ("LEU"): "L",
-                ("LYS"): "K",
-                ("MET"): "M",
-                ("PHE"): "F",
-                ("PRO"): "P",
-                ("SER"): "S",
-                ("THR"): "T",
-                ("TRP"): "W",
-                ("TYR"): "Y",
-                ("VAL"): "V"
-        ]
-
-def getSequence = { String pdbId, String chainId ->
-    def structure = StructureIO.getStructure(pdbId)
-    def chain = structure.getChainByPDB(chainId)
-    chain.getAtomGroups(GroupType.AMINOACID).collect { aaConversions[it.PDBName] }.join("")
-}
+new File("tmp/").mkdirs()
 
 def sequenceMap = new HashMap<String, String>()
 
 System.err.println "Extracting amino acid sequences of 'tcr' polymers"
 
-new File("../tmp/tcr.fasta").withPrintWriter { pw ->
+new File("tmp/tcr.fasta").withPrintWriter { pw ->
     new File(args[0]).eachLine { it, ind ->
         if (ind == 1) return
         def splitLine = it.split("\t")
@@ -66,7 +37,7 @@ new File("../tmp/tcr.fasta").withPrintWriter { pw ->
             def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
             species = species.replaceAll(" +", "_")
 
-            def id = "$pdbId|$chainId|$species", seq = getSequence(pdbId, chainId)
+            def id = "$pdbId|$chainId|$species", seq = AnnotUtil.getSequence(pdbId, chainId)
             pw.println(">$id")
             pw.println(seq)
             sequenceMap.put(id.toString(), seq)
@@ -76,7 +47,7 @@ new File("../tmp/tcr.fasta").withPrintWriter { pw ->
 
 System.err.println "IG-BLAST'ing"
 
-def proc = ("igblastp -germline_db_V ../res/tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query ../tmp/tcr.fasta -out ../tmp/tcr.blast").execute()
+def proc = ("igblastp -germline_db_V tcr.prot -domain_system imgt -num_alignments_V 1 -outfmt 7 -query tmp/tcr.fasta -out tmp/tcr.blast").execute()
 
 proc.waitFor()
 
@@ -98,6 +69,8 @@ def groomMatch = { Matcher matcher ->
 
 def minIdent = 0.8, minAlignedBases = 30
 def mapped = 0
+
+def J_END_MATCHES = [/[FW]G.G/, /[FW]G.$/, /[FW]G$/, /[FW]$/]
 
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tv_match\tv_allele\tregion\tstart\tend\tseq")
@@ -121,10 +94,8 @@ new File(args[1]).withPrintWriter { pw ->
                             end = -1
                         if (it.key.toString() == "CDR3") {
                             start--
-                            def cdr3match = seq.substring(start) =~ /[FW]G.G/
-                            if (cdr3match.find()){// ||
-                                //(cdr3match = seq.substring(start) =~ /[FW]G.$/).find() ||
-                                //(cdr3match = seq.substring(start) =~ /[FW]G$/).find()) {
+                            def cdr3match = null
+                            if (J_END_MATCHES.any { cdr3match = seq.substring(start) =~ it; cdr3match.find() ){
                                 end = start + cdr3match.start() + 1
                             }
                         } else {
@@ -147,7 +118,7 @@ new File(args[1]).withPrintWriter { pw ->
         }
     }
 
-    new File("../tmp/tcr.blast").eachLine {
+    new File("tmp/tcr.blast").eachLine {
         if (it.startsWith("# IGBLASTP")) {
             processChunk()
             chunk = ""

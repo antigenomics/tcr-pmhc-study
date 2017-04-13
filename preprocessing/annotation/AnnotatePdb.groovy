@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay (mikhail.shugay@gmail.com)
+ * Copyright 2015-2017 Mikhail Shugay (mikhail.shugay@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,11 @@
 import org.biojava.nbio.structure.rcsb.RCSBDescriptionFactory
 import org.biojava.nbio.structure.rcsb.RCSBPolymer
 
-def allowedHostIds = [(9606): "HomoSapiens", (10090): "MusMusculus"]//, (9544): "MacacaMulatta", (10116): "RattusNorvegicus"]
+def allowedHostIds = [(9606): "HomoSapiens", (10090): "MusMusculus", (9544): "MacacaMulatta", (10116): "RattusNorvegicus"]
 
 def mhcKeywords = ["hla", "mhc", "histocompatibility", "beta-2-microglobulin", "beta-2 microglobulin", "beta2 microglobulin", "b2m"],
-    tcrKeywords = ["tcr", "tra", "trav", "trac", "trb", "trbv", "trbc", "t-cell receptor", "t cell receptor", "alpha chain", "beta chain", "immunoglobulin"]
+    tcrKeywords = ["tcr", "tra", "trav", "trac", "trb", "trbv", "trbc", "t-cell receptor", "t cell receptor", "alpha chain", "beta chain", "immunoglobulin", 
+    "42F3 alpha", "42F3 beta", "2C alpha", "2C beta"]
 
 def goodPdbs = 0
 
@@ -57,15 +58,6 @@ new File(args[1]).withPrintWriter { pw ->
             problems = true
         }
 
-        if (!problems) {
-            def species = ((RCSBPolymer) hostPolymers[0]).taxonomy.id
-
-            if (hostPolymers.any { it.taxonomy.id != species }) {
-                System.err.println "Bad PDB record $pdbId: ambiguous host species"
-                problems = true
-            }
-        }
-
         if (nonHostPolymers.empty) {
             System.err.println "Bad PDB record $pdbId: no nonhost polymers"
             problems = true
@@ -97,7 +89,7 @@ new File(args[1]).withPrintWriter { pw ->
             }
         }
 
-        if (mhcChains.size() != 2) {
+        if (mhcChains.size() > 2 || mhcChains.size() == 0) {
             System.err.println "Bad PDB record $pdbId: wrong number of mhc chains"
             problems = true
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay (mikhail.shugay@gmail.com)
+ * Copyright 2015-2017 Mikhail Shugay (mikhail.shugay@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 
 import org.biojava.nbio.structure.GroupType
 import org.biojava.nbio.structure.StructureIO
+import AnnotUtil
 
 class Entity {
     String pdbChain, description
@@ -88,36 +89,6 @@ class Complex {
     }
 }
 
-def aaConversions =
-        [
-                ("ALA"): "A",
-                ("ARG"): "R",
-                ("ASN"): "N",
-                ("ASP"): "D",
-                ("CYS"): "C",
-                ("GLN"): "Q",
-                ("GLU"): "E",
-                ("GLY"): "G",
-                ("HIS"): "H",
-                ("ILE"): "I",
-                ("LEU"): "L",
-                ("LYS"): "K",
-                ("MET"): "M",
-                ("PHE"): "F",
-                ("PRO"): "P",
-                ("SER"): "S",
-                ("THR"): "T",
-                ("TRP"): "W",
-                ("TYR"): "Y",
-                ("VAL"): "V"
-        ]
-
-def getSequence = { String pdbId, String chainId ->
-    def structure = StructureIO.getStructure(pdbId)
-    def chain = structure.getChainByPDB(chainId)
-    chain.getAtomGroups(GroupType.AMINOACID).collect { aaConversions[it.PDBName] }.join("")
-}
-
 def complexMap = new HashMap<String, Complex>()
 
 println "Loading complexes"
@@ -133,7 +104,7 @@ new File(args[0]).eachLine { it, ind ->
     }
 
     if (type == "antigen") {
-        complex.antigen = new Antigen(pdbChain: chainId, description: descr, seq: getSequence(pdbId, chainId))
+        complex.antigen = new Antigen(pdbChain: chainId, description: descr, seq: AnnotUtil.getSequence(pdbId, chainId))
     }
 }
 
@@ -186,7 +157,7 @@ new File(args[3]).withPrintWriter { pw ->
             "chain_mhc_b\tmhc_b_allele\t" +
             "mhc_type\t" +
             "chain_antigen\tantigen_seq\t" +
-            "chain_tcr\ttcr_v_allele\ttcr_j_allele\t" +
+            "chain_tcr\ttcr_gene\ttcr_v_allele\ttcr_j_allele\t" +
             "tcr_region\ttcr_region_start\ttcr_region_end\ttcr_region_seq")
     complexMap.values().each { Complex complex ->
         boolean problems = false
@@ -214,7 +185,7 @@ new File(args[3]).withPrintWriter { pw ->
                                     complex.mhc[1].pdbChain, complex.mhc[1].allele,
                                     complex.mhc.any { it.allele.toLowerCase().contains("b2m") } ? "MHCI" : "MHCII",
                                     complex.antigen.pdbChain, complex.antigen.seq,
-                                    tcr.pdbChain, tcr.vSegment,
+                                    tcr.pdbChain, tcr.vSegment[0..2], tcr.vSegment,
                                     regionType, region.start, region.end, region.seq
                         ].join("\t")
                         )

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Mikhail Shugay (mikhail.shugay@gmail.com)
+ * Copyright 2015-2017 Mikhail Shugay (mikhail.shugay@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,42 +16,15 @@
 @Grab(group = 'org.biojava', module = 'biojava-structure', version = '4.1.0')
 import org.biojava.nbio.structure.GroupType
 import org.biojava.nbio.structure.StructureIO
-
-def aaConversions =
-        [
-                ("ALA"): "A",
-                ("ARG"): "R",
-                ("ASN"): "N",
-                ("ASP"): "D",
-                ("CYS"): "C",
-                ("GLN"): "Q",
-                ("GLU"): "E",
-                ("GLY"): "G",
-                ("HIS"): "H",
-                ("ILE"): "I",
-                ("LEU"): "L",
-                ("LYS"): "K",
-                ("MET"): "M",
-                ("PHE"): "F",
-                ("PRO"): "P",
-                ("SER"): "S",
-                ("THR"): "T",
-                ("TRP"): "W",
-                ("TYR"): "Y",
-                ("VAL"): "V"
-        ]
-
-def getSequence = { String pdbId, String chainId ->
-    def structure = StructureIO.getStructure(pdbId)
-    def chain = structure.getChainByPDB(chainId)
-    chain.getAtomGroups(GroupType.AMINOACID).collect { aaConversions[it.PDBName] }.join("")
-}
+import AnnotUtil.*
 
 def seqLengths = new HashMap<String, Integer>()
 
 println "Extracting amino acid sequences of 'mhc' polymers"
 
-new File("../tmp/mhc.fasta").withPrintWriter { pw ->
+new File("tmp/").mkdirs()
+
+new File("tmp/mhc.fasta").withPrintWriter { pw ->
     new File(args[0]).eachLine { it, ind ->
         if (ind == 1) return
         def splitLine = it.split("\t")
@@ -61,7 +34,7 @@ new File("../tmp/mhc.fasta").withPrintWriter { pw ->
             def pdbId = splitLine[0], chainId = splitLine[1], species = splitLine[2]
             species = species.replaceAll(" +", "_")
 
-            def id = "$pdbId|$chainId|$species".toString(), seq = getSequence(pdbId, chainId)
+            def id = "$pdbId|$chainId|$species".toString(), seq = AnnotUtil.getSequence(pdbId, chainId)
             pw.println(">$id")
             pw.println(seq)
             seqLengths.put(id, seq.length())
@@ -73,9 +46,9 @@ println "BLAST'ing"
 
 def proc =
         """
-        blastp -num_threads ${Runtime.runtime.availableProcessors()} -db ../res/mhc.prot
+        blastp -num_threads 4 -db mhc.prot
         -outfmt 6 -num_alignments 1
-        -query ../tmp/mhc.fasta -out ../tmp/mhc.blast
+        -query tmp/mhc.fasta -out tmp/mhc.blast
         """.execute()
 
 proc.waitFor()
@@ -89,7 +62,7 @@ def mapped = 0
 
 new File(args[1]).withPrintWriter { pw ->
     pw.println("pdb_id\tpdb_chain_id\tspecies\tmhc_match")
-    new File("../tmp/mhc.blast").splitEachLine("[\t ]+") {
+    new File("tmp/mhc.blast").splitEachLine("[\t ]+") {
         def id = it[0], match = it[1], ident = it[2].toDouble() / 100, span = it[3].toDouble()
         if ([id, match, ident, seqLengths[id]].any { x -> x == null }) {
             System.err.println "Bad output $it"
