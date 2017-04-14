@@ -13,9 +13,9 @@ from os import chdir, path, makedirs
 warnings.filterwarnings("ignore")
 
 parser = argparse.ArgumentParser(description="structure.py")
-parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
+parser.add_argument("-i", nargs=1, type=str, default="../../output/final.annotations.txt",
                     help="Annotation table path.")
-parser.add_argument("-o", nargs=1, type=str, default="../../result/structure.txt",
+parser.add_argument("-o", nargs=1, type=str, default="../../output/structure.txt",
                     help="Output table path.")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
                     help="Temporary folder path")
@@ -61,11 +61,11 @@ param_template_path = path.abspath("../res/")
 # Writing output file header
 col_names = ['pdb_id', 'species',
              'mhc_type', 'mhc_a_allele', 'mhc_b_allele',
-             'antigen_seq',
+             'antigen_seq', 'tcr_gene',
              'tcr_v_allele', 'tcr_region', 'tcr_region_seq',
              'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
              'pos_tcr', 'pos_antigen',
-             'distance', 'distance_CA', 'distance_CB', 
+             'distance', 'distance_CA',
              'energy']
 
 with open(output_file, 'w') as f:
@@ -75,7 +75,8 @@ with open(output_file, 'w') as f:
 # Work in GROMACS path, as inevitably there will be lots of mess created in work dir
 # and many paths are specified relative to it
 
-chdir(gmx_dir)
+if use_gmx:
+    chdir(gmx_dir)
 
 pdb_list = PDBList()
 pdb_parser = PDBParser()
@@ -122,12 +123,16 @@ for pdb_id, pdb_group in bypdb:
                 ". Replacing with one from PDB.")
         pdb_annot['antigen_seq'] = antigen_seq_obs
 
-    # Iterate by TCR chain/region (CDR1,2,3 + FR1,2,3)
+    # Iterate by TCR chain/region (CDR1,2,3)
     byregion = pdb_group.groupby(['chain_tcr', 'tcr_region'])
     results_by_pdb = []
     for tcr_region_id, tcr_region_group in byregion:
         # Get and check tcr region residues
         tcr_annot = tcr_region_group.iloc[0]
+
+        if tcr_annot['tcr_region'].startswith('FR'):
+            continue
+        
         tcr_chain = model[tcr_annot['chain_tcr']]
         tcr_region_seq = tcr_annot['tcr_region_seq']
         tcr_region_range = range(tcr_annot['tcr_region_start'], tcr_annot['tcr_region_end'])
@@ -143,7 +148,7 @@ for pdb_id, pdb_group in bypdb:
 
         # Compute distances and add them to results
         distances = calc_distances(tcr_chain.get_id(), antigen_chain.get_id(),
-                                   tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
+                                   tcr_annot['tcr_gene'], tcr_annot['tcr_v_allele'], tcr_annot['tcr_region'],
                                    tcr_region_residues, antigen_residues, tcr_region_range, antigen_range)
 
         if use_gmx:

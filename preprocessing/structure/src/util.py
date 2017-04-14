@@ -52,7 +52,10 @@ def get_residues(residues, range):
 
 
 def get_calpha_pos(aa):
-    return aa['CA'].get_vector()
+    if 'CA' in aa:
+        return aa['CA'].get_vector()
+    else:
+        return Vector(float('nan'), float('nan'), float('nan'))
 
 
 def rotate(residues):
@@ -152,9 +155,10 @@ def calc_distance(aa1, aa2, dist_type = 'closest_atom'):
         return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
 
 
-def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
+def calc_distances(tcr_chain, antigen_chain, tcr_gene, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
     # indexes are required to access GROMACS data
-    return [{'tcr_v_allele': tcr_v_allele,
+    return [{'tcr_gene': tcr_gene,
+             'tcr_v_allele': tcr_v_allele,
              'tcr_region': tcr_region,
              'idx_tcr': tcr_chain + '_' + str(aa_tcr.get_id()[1]),
              'idx_antigen': antigen_chain + '_' + str(aa_ag.get_id()[1]),
@@ -165,8 +169,7 @@ def calc_distances(tcr_chain, antigen_chain, tcr_v_allele, tcr_region, tcr_resid
              'pos_tcr': i,
              'pos_antigen': j,
              'distance': calc_distance(aa_tcr, aa_ag),
-             'distance_CA': calc_distance(aa_tcr, aa_ag, 'CA'),
-             'distance_CB': calc_distance(aa_tcr, aa_ag, 'CB')}
+             'distance_CA': calc_distance(aa_tcr, aa_ag, 'CA')}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues) if aa_ag.get_resname() not in _skip]
 

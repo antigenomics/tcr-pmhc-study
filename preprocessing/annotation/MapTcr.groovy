@@ -95,7 +95,7 @@ new File(args[1]).withPrintWriter { pw ->
                         if (it.key.toString() == "CDR3") {
                             start--
                             def cdr3match = null
-                            if (J_END_MATCHES.any { cdr3match = seq.substring(start) =~ it; cdr3match.find() ){
+                            if (J_END_MATCHES.any { cdr3match = seq.substring(start) =~ it; cdr3match.find() } ){
                                 end = start + cdr3match.start() + 1
                             }
                         } else {

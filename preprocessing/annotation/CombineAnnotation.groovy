@@ -87,6 +87,12 @@ class Complex {
     String toString() {
        [pdbId, species, mhc, tcr].toString()
     }
+
+    void completeMhc() {
+       if (mhc.size() == 1) {
+            mhc << new Mhc(allele: "B2M", pdbChain: "NA", description: "Imputed!")
+       }
+    }
 }
 
 def complexMap = new HashMap<String, Complex>()
@@ -157,10 +163,12 @@ new File(args[3]).withPrintWriter { pw ->
             "chain_mhc_b\tmhc_b_allele\t" +
             "mhc_type\t" +
             "chain_antigen\tantigen_seq\t" +
-            "chain_tcr\ttcr_gene\ttcr_v_allele\ttcr_j_allele\t" +
+            "chain_tcr\ttcr_gene\ttcr_v_allele\t" +
             "tcr_region\ttcr_region_start\ttcr_region_end\ttcr_region_seq")
     complexMap.values().each { Complex complex ->
-        boolean problems = false
+        boolean problems = false        
+        complex.completeMhc()
+
         if (complex.mhc.size() != 2) {
             System.err.println("Bad PDB record ${complex.pdbId}: wrong MHC annotation, #mhc=${complex.mhc.size()}")
             problems = true
