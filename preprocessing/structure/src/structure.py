@@ -66,7 +66,7 @@ col_names = ['pdb_id', 'species',
              'aa_tcr', 'aa_antigen', 'len_tcr', 'len_antigen',
              'pos_tcr', 'pos_antigen',
              'distance', 'distance_CA',
-             'energy']
+             'nbonds', 'energy']
 
 with open(output_file, 'w') as f:
     f.write('\t'.join(col_names) + '\n')
@@ -94,14 +94,15 @@ for pdb_id, pdb_group in bypdb:
     print("[", time.strftime("%c"), i, "/", table.shape[0], "]")
     print(pdb_id, "- preparing for computation")
 
+    # Fix PDB structure
+    print(pdb_id, "-- fixing PDB")
+    pdb_file = fix_pdb(pdb_id, pdb_file, pdb_group)
+    
     # Load model from original pdb file
     model = pdb_parser.get_structure(pdb_id, pdb_file)[0]
     
     if use_gmx:
         # Fix PDB structure and make GROMACS files, we'll use it later
-        print(pdb_id, "-- fixing PDB")
-        pdb_file = fix_pdb(pdb_id, pdb_file, pdb_group)
-
         print(pdb_id, "-- making topology")
         prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path)
         if minimized:

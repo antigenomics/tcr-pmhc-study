@@ -779,13 +779,12 @@ compute_contact_map = function(mhc_type, tcr_chain, tcr_region, cdr_seq, ag_seq,
 
 ## Example 1
 
-Testing on data from [http://www.jbc.org/content/289/2/628.full](REF1) - engeneered peptide
+Testing on data from [http://www.jbc.org/content/289/2/628.full](REF1) - mutated peptide
 
 ```{r}
 cm.tmp = compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","ILAKFLHWL","WT")
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","ILAAFLHWL","No binding"))
 cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATSGTYKYIF","GLGGGGGGV","Mock"))
-cm.tmp = rbind(cm.tmp, compute_contact_map("MHCI","TRA","CDR3","CAVDSATALPYGYIF","ILAKFLHWL", "Enhanced"))
 
 print(cm.tmp %>% group_by(id) %>% summarize(contacts = sum(p), energy = sum(p * energy.mean)))
 

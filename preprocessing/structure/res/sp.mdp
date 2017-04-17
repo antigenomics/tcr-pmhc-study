@@ -2,11 +2,11 @@
 continuation	= yes
 
 ; Neighborsearching and short-range nonbonded interactions
-cutoff-scheme	= verlet
+cutoff-scheme		= Verlet
 nstlist			= 1
 ns_type			= grid
-pbc				= xyz
-rlist			= 1.0
+pbc			= xyz
+rlist			= 0.8
 
 ; Electrostatics
 coulombtype		= PME
@@ -14,3 +14,7 @@ rcoulomb		= 0.8
 
 ; van der Waals
 rvdw			= 0.8
+
+constraints		= all-bonds
+
+ld-seed                  = 1993

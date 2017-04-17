@@ -151,8 +151,17 @@ def calc_distance(aa1, aa2, dist_type = 'closest_atom'):
         return (get_calpha_pos(aa1) - get_calpha_pos(aa2)).norm()
     elif dist_type == 'CB':    
         return (get_cbeta_pos(aa1) - get_cbeta_pos(aa2)).norm()
-    else: # min dist
+    else: # min dist)
         return min([abs(atom1 - atom2) for atom1 in aa1 for atom2 in aa2])
+
+
+def calc_bonds(aa1, aa2, dist_threshold = 4.5):
+    bonds = 0
+    for atom1 in aa1:
+        for atom2 in aa2:
+            if abs(atom1 - atom2) <= dist_threshold:
+                bonds = bonds + 1
+    return bonds
 
 
 def calc_distances(tcr_chain, antigen_chain, tcr_gene, tcr_v_allele, tcr_region, tcr_residues, ag_residues, tcr_range, ag_range):
@@ -169,7 +178,8 @@ def calc_distances(tcr_chain, antigen_chain, tcr_gene, tcr_v_allele, tcr_region,
              'pos_tcr': i,
              'pos_antigen': j,
              'distance': calc_distance(aa_tcr, aa_ag),
-             'distance_CA': calc_distance(aa_tcr, aa_ag, 'CA')}
+             'distance_CA': calc_distance(aa_tcr, aa_ag, 'CA'),
+             'nbonds': calc_bonds(aa_tcr, aa_ag)}
             for i, aa_tcr in enumerate(tcr_residues)
             for j, aa_ag in enumerate(ag_residues) if aa_ag.get_resname() not in _skip]
 
@@ -195,9 +205,12 @@ def fix_pdb(pdb_id, pdb_file, pdb_group):
     fixer.removeChains(chainIds=chains_to_remove)
 
     fixer.findMissingResidues()
+    fixer.findNonstandardResidues()
+    fixer.replaceNonstandardResidues()
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.removeHeterogens(True)
+    #fixer.addMissingHydrogens(7.0)
 
     # KeepIds flag is critical here, otherwise we loose all information binding
     pdb_file = dirname(pdb_file) + '/' + pdb_id + '.pdb'
@@ -258,7 +271,7 @@ def create_index(pdb_id, pdb_sub_id, keep_idxs):
 def prepare_gmx(pdb_id, pdb_file, gmx_dir, param_template_path):
     param_template_path += "/ions.mdp"
 
-    check_call('gmx pdb2gmx -f {0} -o {1}.pdb -p {1}.top -water spce -ff oplsaa >> gmx.log 2>&1; '
+    check_call('gmx pdb2gmx -f {0} -o {1}.pdb -p {1}.top -water tip3p -ff oplsaa -ignh >> gmx.log 2>&1; '
                'gmx editconf -f {1}.pdb -o {1}.pdb -c -d 1.2 -bt cubic >> gmx.log 2>&1; '
                'gmx solvate -cp {1}.pdb -cs spc216.gro -o {1}.pdb -p {1}.top >> gmx.log 2>&1; '.
                # 'gmx grompp -f {2} -c {1}.pdb -p {1}.top -o {1}.ions.tpr >> gmx.log 2>&1; '
