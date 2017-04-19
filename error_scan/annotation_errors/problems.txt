@@ -1,0 +1,56 @@
+Problem with structures:
+2xn9	Found 6 chains, while should be 5.
+4c56	Found 6 chains, while should be 5.
+//
+
+Problems with chain:
+4eup	Change antigen from 'C' to 'F'
+4eup	Change mhc_a from 'A' to 'D'
+4eup	Change mhc_b from 'B' to 'E'
+4gg6	Change mhc_a from 'A' to 'C'
+4gg6	Change mhc_b from 'B' to 'D'
+4ozg	Change mhc_a from 'A' to 'C'
+4ozg	Change mhc_b from 'B' to 'D'
+4ozh	Change mhc_a from 'A' to 'C'
+4ozh	Change mhc_b from 'B' to 'D'
+4ozi	Change mhc_a from 'A' to 'C'
+4ozi	Change mhc_b from 'B' to 'D'
+4z7u	Change mhc_a from 'A' to 'C'
+4z7u	Change mhc_b from 'B' to 'D'
+4z7v	Change mhc_a from 'A' to 'C'
+4z7v	Change mhc_b from 'B' to 'D'
+4z7w	Change mhc_a from 'A' to 'C'
+4z7w	Change mhc_b from 'B' to 'D'
+5c0c	Change antigen from 'C' to 'H'
+5c0c	Change mhc_a from 'A' to 'F'
+5c0c	Change mhc_b from 'B' to 'G'
+5d2l	Change antigen from 'Q' to 'R'
+5d2l	Change mhc_a from 'A' to 'C'
+5d2l	Change mhc_b from 'B' to 'D'
+5d2n	No mhc_a found in biomolecule
+5d2n	Change mhc_b from 'B' to 'L'
+5euo	Change antigen from 'I' to 'J'
+5ks9	Change mhc_a from 'A' to 'C'
+5ks9	Change mhc_b from 'B' to 'D'
+5ksb	Change mhc_a from 'A' to 'C'
+5ksb	Change mhc_b from 'B' to 'D'
+//
+
+Loss of data:
+4qrp
+//
+
+Possible problems:
+1u3h	Found 10 chains in biomolecule, while should be 5.
+1zgl	Found 20 chains in biomolecule, while should be 5.
+2xn9	Found 6 chains in biomolecule, while should be 5.
+3sjv	Found 20 chains in biomolecule, while should be 5.
+4c56	Found 6 chains in biomolecule, while should be 5.
+4zez	Found 10 chains in biomolecule, while should be 5.
+5d2n	Found 7 chains in biomolecule, while should be 5.
+//
+
+Problem with data annotation:
+pdb	should_be	what_is
+//
+
