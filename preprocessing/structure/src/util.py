@@ -120,15 +120,14 @@ def calc_distance(aa1, aa2, dist_type = 'closest_atom'):
             for atom2 in aa2 if not is_hydrogen(atom2)])
 
 
-def calc_distances(tcr_v_allele, tcr_region, tcr_residues, ag_residues,
-                   tcr_range, ag_range):
-    return [{'tcr_gene': tcr_v_allele[0:3],
-             'tcr_v_allele': tcr_v_allele,
-             'tcr_region': tcr_region,
-             'aa_tcr': get_aa_code(aa_tcr),
+def calc_distances(tcr_residues, ag_residues):
+    len_tcr = len(tcr_residues)
+    len_antigen = len(ag_residues)
+
+    return [{'aa_tcr': get_aa_code(aa_tcr),
              'aa_antigen': get_aa_code(aa_ag),
-             'len_tcr': len(tcr_range),
-             'len_antigen': len(ag_range),
+             'len_tcr': len_tcr,
+             'len_antigen': len_antigen,
              'pos_tcr': i,
              'pos_antigen': j,
              'distance': calc_distance(aa_tcr, aa_ag),
