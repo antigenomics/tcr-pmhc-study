@@ -152,7 +152,7 @@ for pdb_id, pdb_group in bypdb:
             tcr_annot['tcr_region_seq'] = tcr_region_seq_obs
 
         # we'll need this for mock complexes
-        if generate_mock and tcr_region_name == "CDR3":
+        if generate_mock: #and tcr_region_name == "CDR3":
             df_residues.append({'pdb_id': pdb_id,
                                 'mhc_type': mhc_type,
                                 'ag_seq': antigen_seq_obs,

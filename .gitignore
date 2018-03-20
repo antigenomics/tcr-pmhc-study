@@ -1,3 +1,8 @@
+preprocessing/structure/tmp/
+preprocessing/logs/
+preprocessing/output/mock_structure.txt
+estimates/
+old/
 tmp/
 
 ## Groovy

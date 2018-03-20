@@ -83,7 +83,7 @@ pdb_id	pdb_chain_id	species	type	descr
 1u3h	D	Mus musculus	mhc	H-2 class II histocompatibility antigen, A-U beta chain
 1u3h	A	Mus musculus	tcr	T-cell receptor alpha-chain
 1u3h	B	Mus musculus	tcr	Mouse TCRVbeta 172.10, extracellular variable domain
-1u3h	I	unknown	antigen	Myelin basic protein (MBP)-peptide
+1u3h	I	Mus musculus	antigen	Myelin basic protein (MBP)-peptide
 1ymm	A	Homo sapiens	mhc	HLA class II histocompatibility antigen, DR alpha chain
 1ymm	B	Homo sapiens	mhc	HLA class II histocompatibility antigen, DR beta chain
 1ymm	D	Homo sapiens	tcr	T cell receptor alpha chain
@@ -114,6 +114,10 @@ pdb_id	pdb_chain_id	species	type	descr
 2ckb	A	Mus musculus	tcr	ALPHA, BETA T CELL RECEPTOR
 2ckb	B	Mus musculus	tcr	ALPHA, BETA T CELL RECEPTOR
 2ckb	P	Mus musculus	antigen	DEV8 PEPTIDE
+2e7l	E	Mus musculus	mhc	H-2 class I histocompatibility antigen, L-D alpha chain
+2e7l	A	Mus musculus	tcr	Cytotoxic Tcell receptor
+2e7l	C	Mus musculus	tcr	Beta-chain
+2e7l	P	unknown	antigen	Peptide (GLN)(LEU)(SER)(PRO)(PHE)(PRO)(PHE)(ASP)(LEU)
 2esv	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, alpha chain E
 2esv	B	Homo sapiens	mhc	Beta-2-microglobulin
 2esv	D	Homo sapiens	tcr	KK50.4 T cell receptor alpha chain
@@ -144,6 +148,11 @@ pdb_id	pdb_chain_id	species	type	descr
 2ian	D	Homo sapiens	tcr	CD4+ T cell receptor E8 alpha chain
 2ian	E	Homo sapiens	tcr	CD4+ T cell receptor E8 beta chain
 2ian	C	Homo sapiens	antigen	15-mer peptide from Triosephosphate isomerase
+2icw	A	Homo sapiens	mhc	HLA class II histocompatibility antigen, DR alpha chain
+2icw	B	Homo sapiens	mhc	HLA class II histocompatibility antigen, DRB1-1 beta chain
+2icw	I	Mus musculus	tcr	T-cell receptor alpha chain V
+2icw	J	Mus musculus	tcr	T-cell receptor beta chain V
+2icw	C	unknown	antigen	haemagglutinin peptide
 2j8u	A	Homo sapiens	mhc	HLA CLASS I HISTOCOMPATIBILITY ANTIGEN, A-2 ALPHA CHAIN
 2j8u	B	Homo sapiens	mhc	BETA-2-MICROGLOBULIN
 2j8u	E	Mus musculus	tcr	AHIII TCR ALPHA CHAIN
@@ -391,6 +400,11 @@ pdb_id	pdb_chain_id	species	type	descr
 3vxu	D	Homo sapiens	tcr	T36-5 TCR alpha chain
 3vxu	E	Homo sapiens	tcr	T36-5 TCR beta chain
 3vxu	C	Human immunodeficiency virus 1	antigen	10-mer peptide from Protein Nef
+3w0w	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-24 alpha chain
+3w0w	B	Homo sapiens	mhc	Beta-2-microglobulin
+3w0w	D	Homo sapiens	tcr	T36-5 TCR alpha chain
+3w0w	E	Homo sapiens	tcr	T36-5 TCR beta chain
+3w0w	C	Human immunodeficiency virus 1	antigen	10-mer peptide from Protein Nef
 4c56	D	Homo sapiens	mhc	HLA CLASS II HISTOCOMPATIBILITY ANTIGEN, DR ALPHA CHAIN
 4c56	E	Homo sapiens	mhc	MHC CLASS II ANTIGEN
 4c56	A	Homo sapiens	tcr	T CELL RECEPTOR ALPHA CHAIN
@@ -466,6 +480,22 @@ pdb_id	pdb_chain_id	species	type	descr
 4mnq	D	Homo sapiens	tcr	Uncharacterized protein, T-cell receptor, sp3.4 alpha chain
 4mnq	E	Homo sapiens	tcr	V_segment translation product, T-cell receptor beta-1 chain C region
 4mnq	C	Homo sapiens	antigen	Telomerase reverse transcriptase
+4mvb	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, L-D alpha chain
+4mvb	C	Mus musculus	tcr	42F3 alpha VmCh
+4mvb	D	Mus musculus	tcr	42F3 beta VmCh
+4mvb	B	unknown	antigen	pCPB7
+4mxq	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, L-D alpha chain
+4mxq	C	Mus musculus	tcr	42F3 alpha VmVh chimera
+4mxq	D	Mus musculus	tcr	42F3 beta VmVh chimera
+4mxq	B	unknown	antigen	pCPC5
+4n0c	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, L-D alpha chain
+4n0c	C	Mus musculus	tcr	42F3 VmCh alpha
+4n0c	D	Mus musculus	tcr	42F3 VmCh beta
+4n0c	B	unknown	antigen	pCPE3
+4n5e	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, L-D alpha chain
+4n5e	C	Mus musculus	tcr	42F3 alpha VmCh
+4n5e	D	Mus musculus	tcr	42F3 beta VmCh
+4n5e	B	unknown	antigen	pCPA12
 4ozf	A	Homo sapiens	mhc	HLA class II histocompatibility antigen, DQ alpha 1 chain
 4ozf	B	Homo sapiens	mhc	HLA class II histocompatibility antigen, DQ beta 1 chain
 4ozf	G	Homo sapiens	tcr	T-CELL RECEPTOR, JR5.1 ALPHA CHAIN
@@ -529,7 +559,7 @@ pdb_id	pdb_chain_id	species	type	descr
 4qrp	B	Homo sapiens	mhc	Beta-2-microglobulin
 4qrp	D	Homo sapiens	tcr	DD31 TCR alpha chain
 4qrp	E	Homo sapiens	tcr	DD31 TCR beta chain
-4qrp	C	Hepatitis C virus	antigen	NS3-4A protein
+4qrp	C	Hepacivirus C	antigen	NS3-4A protein
 4y19	A	Homo sapiens	mhc	HLA class II histocompatibility antigen, DR alpha chain
 4y19	B	Homo sapiens	mhc	HLA class II histocompatibility antigen, DRB1-4 beta chain
 4y19	D	Homo sapiens	tcr	FS18_alpha
@@ -555,11 +585,6 @@ pdb_id	pdb_chain_id	species	type	descr
 4z7w	E	Homo sapiens	tcr	T-CELL RECEPTOR, T316 ALPHA CHAIN
 4z7w	F	Homo sapiens	tcr	T-CELL RECEPTOR, T316 BETA CHAIN
 4z7w	I	Triticum aestivum	antigen	DQ8-glia-alpha1
-4zez	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
-4zez	B	Homo sapiens	mhc	Beta-2-microglobulin
-4zez	G	Homo sapiens	tcr	HCV TCR alpha chain
-4zez	H	Homo sapiens	tcr	HCV TCR beta chain
-4zez	C	Hepatitis C virus	antigen	HCV NS3 peptide residues1406-1415
 5brz	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-1 alpha chain
 5brz	B	Homo sapiens	mhc	Beta-2-microglobulin
 5brz	D	Homo sapiens	tcr	Protein TRAV21,T-cell receptor alpha chain C region
@@ -650,11 +675,21 @@ pdb_id	pdb_chain_id	species	type	descr
 5isz	D	Homo sapiens	tcr	TCRalpha chain
 5isz	E	Homo sapiens	tcr	TCRbeta chain
 5isz	C	Influenza A virus	antigen	influenza M1 for peptide
+5ivx	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-D alpha chain
+5ivx	B	Mus musculus	mhc	Beta-2-microglobulin
+5ivx	E	Mus musculus	tcr	T-CELL RECEPTOR ALPHA CHAIN
+5ivx	F	Mus musculus	tcr	T-CELL RECEPTOR BETA CHAIN
+5ivx	P	Homo sapiens	antigen	P18-I10
 5jhd	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
 5jhd	B	Homo sapiens	mhc	Beta-2-microglobulin
 5jhd	D	Homo sapiens	tcr	TCRalpha chain
 5jhd	E	Homo sapiens	tcr	TCRbeta chain
 5jhd	C	Influenza A virus	antigen	Influenza M1(58-66) peptide
+5jzi	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
+5jzi	B	Homo sapiens	mhc	Beta-2-microglobulin
+5jzi	D	Homo sapiens	tcr	HCV1406 TCR alpha chain
+5jzi	E	Homo sapiens	tcr	HCV1406 TCR beta chain
+5jzi	C	Hepacivirus C	antigen	KLV peptide
 5ks9	A	Homo sapiens	mhc	HLA class II histocompatibility antigen, DQ alpha 1 chain
 5ks9	B	Homo sapiens	mhc	HLA class II histocompatibility antigen, DQ beta 1 chain
 5ks9	E	Homo sapiens	tcr	Bel502 TCR alpha TRAV20*01
@@ -670,11 +705,36 @@ pdb_id	pdb_chain_id	species	type	descr
 5ksb	E	Homo sapiens	tcr	T15 TCR alpha TRAV20*02
 5ksb	F	Homo sapiens	tcr	T15 TCR beta TRBV9*01
 5ksb	I	Triticum aestivum	antigen	DQ8.5-glia-gamma1 peptide
+5m00	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
+5m00	B	Mus musculus	mhc	Beta-2-microglobulin
+5m00	G	Mus musculus	tcr	Protein Trav14-1,Uncharacterized protein
+5m00	H	Mus musculus	tcr	T-cell receptor beta chain V region C5,Uncharacterized protein
+5m00	P	Mus musculus	antigen	LCMV-DERIVED GP33 ALTERED PEPTIDE LIGAND Y4A
+5m01	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
+5m01	B	Mus musculus	mhc	Beta-2-microglobulin
+5m01	G	Mus musculus	tcr	Protein Trav14-1,T-cell receptor alpha chain C region
+5m01	H	Mus musculus	tcr	T-cell receptor beta chain V region C5,T-cell receptor beta-2 chain C region
+5m01	P	Lymphocytic choriomeningitis mammarenavirus	antigen	LCMV-DERIVED GP33 ALTERED PEPTIDE LIGAND PA
+5m02	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
+5m02	B	Mus musculus	mhc	Beta-2-microglobulin
+5m02	G	Mus musculus	tcr	Protein Trav14-1,T-cell receptor alpha chain C region
+5m02	H	Mus musculus	tcr	T-cell receptor beta chain V region C5,T-cell receptor beta-2 chain C region
+5m02	P	Lymphocytic choriomeningitis mammarenavirus	antigen	LCMV-DERIVED GP33 ALTERED PEPTIDE LIGAND PF
 5men	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
 5men	B	Homo sapiens	mhc	Beta-2-microglobulin
 5men	D	Homo sapiens	tcr	Protein TRAV22,Human nkt tcr alpha chain
 5men	E	Homo sapiens	tcr	Protein TRBV6-5,Human nkt tcr beta chain
 5men	C	Homo sapiens	antigen	ILE-LEU-ALA-LYS-PHE-LEU-HIS-TRP-LEU
+5nme	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
+5nme	B	Homo sapiens	mhc	Beta-2-microglobulin
+5nme	D	Homo sapiens	tcr	T-cell receptor Alpha chain
+5nme	E	Homo sapiens	tcr	Human T-cell receptor beta chain
+5nme	C	Human immunodeficiency virus 1	antigen	Gag protein
+5nmg	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
+5nmg	B	Homo sapiens	mhc	Beta-2-microglobulin
+5nmg	D	Homo sapiens	tcr	Human T-cell receptor alpha chain
+5nmg	E	Homo sapiens	tcr	Human T-cell Receptor beta chain
+5nmg	C	Human immunodeficiency virus 1	antigen	Gag protein
 5sws	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
 5sws	B	Mus musculus	mhc	Beta-2-microglobulin
 5sws	D	Mus musculus	tcr	NP1-B17 TCR alpha chain
@@ -685,3 +745,38 @@ pdb_id	pdb_chain_id	species	type	descr
 5swz	D	Mus musculus	tcr	NP1-B17 TCR alpha chain
 5swz	E	Mus musculus	tcr	NP1-B17 TCR beta chain
 5swz	C	unidentified influenza virus	antigen	influenza NP366 epitope
+5tez	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-2 alpha chain
+5tez	B	Homo sapiens	mhc	Beta-2-microglobulin
+5tez	I	Homo sapiens	tcr	TCR F50 alpha chain
+5tez	J	Homo sapiens	tcr	TCR F50 beta chain
+5tez	C	Influenza A virus	antigen	GLY-ILE-LEU-GLY-PHE-VAL-PHE-THR-LEU
+5tje	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
+5tje	B	Mus musculus	mhc	Beta-2-microglobulin
+5tje	E	Mus musculus	tcr	ALPHA CHAIN OF MURINE T CELL RECEPTOR p14
+5tje	F	Mus musculus	tcr	BETA CHAIN OF MURINE T CELL RECEPTOR p14
+5tje	I	Lymphocytic choriomeningitis mammarenavirus	antigen	Peptide gp33-41 from LCMV
+5w1v	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, alpha chain E
+5w1v	B	Homo sapiens	mhc	Beta-2-microglobulin
+5w1v	D	Homo sapiens	tcr	GF4 T cell receptor alpha chain
+5w1v	E	Homo sapiens	tcr	GF4 T cell receptor beta chain
+5w1v	C	Human betaherpesvirus 5	antigen	VMAPRTLIL peptide from CMV gpUL40
+5w1w	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, alpha chain E
+5w1w	B	Homo sapiens	mhc	Beta-2-microglobulin
+5w1w	D	Homo sapiens	tcr	GF4 T cell receptor alpha chain
+5w1w	E	Homo sapiens	tcr	GF4 T cell receptor beta chain
+5w1w	C	Homo sapiens	antigen	leader peptide of HLA class I histocompatibility antigen, A alpha chain
+5wkf	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-11 alpha chain
+5wkf	B	Homo sapiens	mhc	Beta-2-microglobulin
+5wkf	D	Homo sapiens	tcr	T-cell receptor alpha variable 30,T-cell receptor, sp3.4 alpha chain Chimera
+5wkf	E	Homo sapiens	tcr	D30 TCR beta chain
+5wkf	C	Dengue virus	antigen	GTS1 peptide
+5wkh	A	Homo sapiens	mhc	HLA class I histocompatibility antigen, A-11 alpha chain
+5wkh	B	Homo sapiens	mhc	Beta-2-microglobulin
+5wkh	D	Homo sapiens	tcr	T-cell receptor alpha variable 30,T-cell receptor, sp3.4 alpha chain
+5wkh	E	Homo sapiens	tcr	D30 TCR beta chain
+5wkh	C	Dengue virus	antigen	GTS3 peptide
+5wlg	A	Mus musculus	mhc	H-2 class I histocompatibility antigen, D-B alpha chain
+5wlg	B	Mus musculus	mhc	Beta-2-microglobulin
+5wlg	D	Mus musculus	tcr	T cell receptor alpha variable 8D-2,Human nkt tcr alpha chain chimera
+5wlg	E	Mus musculus	tcr	T-cell receptor beta chain V region C5,Human nkt tcr beta chain chimera
+5wlg	C	Mus musculus	antigen	GAP50 peptide, SQL

@@ -1,0 +1,7 @@
+mhc_a_allele mhc_b_allele mhc_a_allele_true mhc_b_allele_true
+48425619 B2M H-2Db B2M
+48425589 B2M H-2Kb B2M
+71042290 B2M H-2Ld B2M
+606925 2944428 H-2Eb1 H-2Eb1
+2944427 199185 H-2Aa H-2Aa
+225857 B2M H-2Dd B2M

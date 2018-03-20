@@ -1,0 +1,1253 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(dtplyr)
+library(data.table)
+library(ggplot2)
+library(RColorBrewer)
+library(stringr)
+library(pROC)
+
+select = dplyr::select
+```
+
+## Get mock data and run some EDA
+
+Load structural data and annotations
+
+```{r}
+dt.mock = fread("preprocessing/output/mock_structure.txt") %>% filter(pdb_id_a != "4p46", pdb_id_t != "4p46")
+dt.mock.all = dt.mock
+dt.struct = fread("preprocessing/output/structure.txt") %>% filter(pdb_id != "4p46")
+dt.annot = fread("preprocessing/output/final.annotations.txt") %>% filter(pdb_id != "4p46")
+```
+
+Replace MMU MHC aliases
+
+```{r}
+dt.allele.aliases = fread("mmu_hla_alleles.txt")
+
+mhc_a_mmu = dt.allele.aliases$mhc_a_allele_true
+names(mhc_a_mmu) = dt.allele.aliases$mhc_a_allele
+
+mhc_b_mmu = dt.allele.aliases$mhc_b_allele_true
+names(mhc_b_mmu) = dt.allele.aliases$mhc_b_allele
+
+dt.struct$mhc_a_allele = with(dt.struct, ifelse(species == "Mus_musculus", mhc_a_mmu[mhc_a_allele], mhc_a_allele))
+dt.struct$mhc_b_allele = with(dt.struct, ifelse(species == "Mus_musculus", mhc_b_mmu[mhc_b_allele], mhc_b_allele))
+dt.annot$mhc_a_allele = with(dt.annot, ifelse(species == "Mus_musculus", mhc_a_mmu[mhc_a_allele], mhc_a_allele))
+dt.annot$mhc_b_allele = with(dt.annot, ifelse(species == "Mus_musculus", mhc_b_mmu[mhc_b_allele], mhc_b_allele))
+```
+
+Filter complexes where TCR and pMHC are too far away
+
+```{r}
+dt.mock.min = dt.mock %>%
+  group_by(tcr_gene, pdb_id_a, pdb_id_t) %>%
+  summarise(dist.min = min(distance_CA))
+
+ggplot(dt.mock.min, aes(x = dist.min)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(0,150, by=10))
+
+dt.mock.good = dt.mock.min %>%
+  filter(dist.min <= 12) %>% unique
+
+dt.mock = dt.mock[paste(tcr_gene, pdb_id_a, pdb_id_t) %in% 
+                    paste(dt.mock.good$tcr_gene, dt.mock.good$pdb_id_a, dt.mock.good$pdb_id_t)]
+
+dt.struct.min = dt.struct %>%
+  group_by(tcr_gene, pdb_id) %>%
+  summarise(dist.min = min(distance_CA))
+
+ggplot(dt.struct.min, aes(x = dist.min)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = seq(0,150, by=10))
+
+dt.struct.good = dt.struct.min %>%
+  filter(dist.min <= 12) %>% unique
+
+dt.struct = dt.struct[paste(tcr_gene, pdb_id) %in% 
+                    paste(dt.struct.good$tcr_gene, dt.struct.good$pdb_id)]
+```
+
+Some summary statistics on CDR3 lengths
+
+```{r}
+dt.annot %>%
+  filter(mhc_type == "MHCI", nchar(antigen_seq) %in% 8:11,
+         tcr_region == "CDR3") %>%
+  select(species, tcr_gene, tcr_region_seq) %>%
+  unique %>%
+  as.data.frame %>%
+  group_by(species, tcr_gene, cdr3_len = nchar(tcr_region_seq)) %>%
+  arrange(-cdr3_len, tcr_gene) %>%
+  summarise(total = n()) %>%
+  as.data.frame %>%
+  print
+```
+
+Append useful info, select only MHCI entries, limit to peptide length of 8-11AA
+
+```{r}
+dt.ag.sel = dt.annot %>%
+  filter(mhc_type == "MHCI", nchar(antigen_seq) %in% 8:11) %>%
+  mutate(pdb_id_a = pdb_id,
+         hla = ifelse(species == "Homo_sapiens",
+                      str_split_fixed(mhc_a_allele, fixed("*"), 2)[,1],
+                      mhc_a_allele)) %>%
+  select(species, pdb_id_a, hla) %>% 
+  unique
+
+dt.tcr.sel = dt.annot %>%
+  mutate(species_t = species,
+         pdb_id_t = pdb_id) %>% 
+  select(species_t, pdb_id_t) %>%
+  unique
+
+dt.mock = dt.mock %>%
+  merge(dt.ag.sel, by = "pdb_id_a") %>% # append HLA allele & filter
+  merge(dt.tcr.sel, by = "pdb_id_t") %>%
+  filter(species == species_t)
+
+dt.mock$species_t = NULL
+```
+
+Example CA distance map
+
+```{r}
+ggplot(dt.mock %>% filter(tcr_gene == "TRB", tcr_region == "CDR3", len_antigen == 10, hla == "A"), 
+       aes(x=pos_antigen, y=pos_tcr, fill = distance_CA)) +
+  geom_tile() +
+  facet_grid(len_tcr~pdb_id_a+ag_seq_a, scales = "free") +
+  scale_x_continuous("Position in antigen", breaks=seq(0,30,by=3)) +
+  scale_y_continuous("Position in TCR", breaks=seq(0,30,by=3)) +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw() +
+  theme(legend.position="bottom")
+
+ggplot(dt.mock %>% filter(tcr_gene == "TRB", tcr_region == "CDR3", len_antigen == 8, hla == "H-2Kb"), 
+       aes(x=pos_antigen, y=pos_tcr, fill = distance_CA)) +
+  geom_tile() +
+  facet_grid(len_tcr~pdb_id_a+ag_seq_a, scales = "free") +
+  scale_x_continuous("Position in antigen", breaks=seq(0,30,by=3)) +
+  scale_y_continuous("Position in TCR", breaks=seq(0,30,by=3)) +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw() +
+  theme(legend.position="bottom")
+```
+
+Mean and sd of CA distances
+
+```{r}
+dt.dist.m = dt.mock[, .(dist.m = mean(distance_CA),
+                        dist.sd = sd(distance_CA)),
+                    by = .(species, hla,
+                           len_antigen, pos_antigen, 
+                           tcr_gene, tcr_region, len_tcr, pos_tcr)]
+
+ggplot(dt.dist.m %>% filter(species == "Homo_sapiens", tcr_gene == "TRB", tcr_region == "CDR3"), 
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.m)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Homo_sapiens", tcr_gene == "TRB", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.sd)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Homo_sapiens", tcr_gene == "TRA", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.m)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Homo_sapiens", tcr_gene == "TRA", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.sd)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32)) +
+  theme_bw()
+
+
+ggplot(dt.dist.m %>% filter(species == "Mus_musculus", tcr_gene == "TRB", tcr_region == "CDR3"), 
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.m)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Mus_musculus", tcr_gene == "TRB", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.sd)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Mus_musculus", tcr_gene == "TRA", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.m)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'Spectral'))(32), limits=c(0, 25)) +
+  theme_bw()
+
+ggplot(dt.dist.m %>% filter(species == "Mus_musculus", tcr_gene == "TRA", tcr_region == "CDR3"),
+       aes(x=pos_tcr, y=pos_antigen, fill = dist.sd)) +
+  geom_tile() +
+  facet_grid(hla+len_antigen~len_tcr, scales = "free") +
+  scale_fill_gradientn("dCA",
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32)) +
+  theme_bw()
+```
+
+Plot CA distance distribution for a specific position and all TCRb/epitope lengths; note difference between HLAs.
+
+```{r}
+ggplot(dt.mock %>% filter(species == "Homo_sapiens",
+                          tcr_gene == "TRB",
+                          pos_tcr == 7, pos_antigen == 4), 
+       aes(x=distance_CA, color = hla)) +
+  geom_freqpoly(aes(y=..density..), binwidth = 3) +
+  facet_grid(len_tcr~len_antigen) +
+  theme_bw()
+
+ggplot(dt.mock %>% filter(species == "Homo_sapiens",
+                          tcr_gene == "TRB",
+                          pos_tcr == 6, pos_antigen == 4), 
+       aes(x=distance_CA, color = hla)) +
+  geom_freqpoly(aes(y=..density..), binwidth = 3) +
+  facet_grid(len_tcr~len_antigen) +
+  theme_bw()
+
+
+ggplot(dt.mock %>% filter(species == "Mus_musculus",
+                          tcr_gene == "TRB",
+                          pos_tcr == 7, pos_antigen == 4), 
+       aes(x=distance_CA, color = hla)) +
+  geom_freqpoly(aes(y=..density..), binwidth = 3) +
+  facet_grid(len_tcr~len_antigen) +
+  theme_bw()
+
+ggplot(dt.mock %>% filter(species == "Mus_musculus",
+                          tcr_gene == "TRB",
+                          pos_tcr == 6, pos_antigen == 4), 
+       aes(x=distance_CA, color = hla)) +
+  geom_freqpoly(aes(y=..density..), binwidth = 3) +
+  facet_grid(len_tcr~len_antigen) +
+  theme_bw()
+```
+
+Distance restrictions from real data
+
+```{r}
+CONTACT_THRESHOLD_MIN = 5
+CONTACT_THRESHOLD_MAX = 2
+
+#dt.struct$aa_1 = with(dt.struct, ifelse(aa_tcr < aa_antigen, aa_tcr, aa_antigen))
+#dt.struct$aa_2 = with(dt.struct, ifelse(aa_tcr < aa_antigen, aa_antigen, aa_tcr))
+
+#ggplot(dt.struct, aes(x=distance_CA, fill = distance <= 4.5)) +
+#  geom_histogram(binwidth = 0.5) +
+#  scale_y_log10() +
+#  scale_x_continuous(limits = c(0, 15)) +
+#  facet_grid(aa_1~aa_2)
+
+ggplot() +
+  annotate(geom = "rect", xmin = CONTACT_THRESHOLD_MIN, xmax = CONTACT_THRESHOLD_MAX, ymin = 0, ymax = +Inf, alpha = 0.5, fill = "grey") +
+  geom_freqpoly(data = dt.struct, aes(x=distance, y = ..density..), binwidth = 0.25, color = "red") +
+  #geom_density(data = dt.struct, aes(x=distance), color = "red") +
+  geom_freqpoly(data = dt.mock.all, aes(x=distance, y = ..density..), binwidth = 0.25) +
+  scale_x_continuous(limits =c(0,8), breaks = 0:8) +
+  theme_bw()
+```
+
+Contact definition
+
+```{r}
+calc_contact = function(x) {
+  ifelse(x > CONTACT_THRESHOLD_MIN, 0,
+         ifelse(x > CONTACT_THRESHOLD_MAX, 1, -1))
+}
+
+calc_contact_2 = function(x) {
+  ifelse(x > CONTACT_THRESHOLD_MIN, 0,
+         ifelse(x > CONTACT_THRESHOLD_MAX, 1, 0))
+}
+```
+
+Some EDA on contacts
+
+```{r}
+dt.cont = dt.struct %>%
+  filter(mhc_type == "MHCI") %>%
+  group_by(pdb_id, species, tcr_gene, tcr_region, len_tcr, len_antigen) %>%
+  summarise(contacts = sum(calc_contact_2(distance)), real = T) %>%
+  rbind(dt.mock %>%
+          mutate(pdb_id = paste(pdb_id_t, pdb_id_a)) %>%
+          group_by(pdb_id, species, tcr_gene, tcr_region, len_tcr, len_antigen) %>%
+          summarise(contacts = sum(calc_contact_2(distance)), real = F))
+
+ggplot(dt.cont, aes(x = len_tcr, group = paste(real,len_tcr), y = contacts, fill = real)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=0:30) +
+  facet_grid(species~tcr_gene + tcr_region, scales = "free_x", space = "free_x")
+
+ggplot(dt.cont, aes(x = len_tcr, group = paste(real,len_tcr), y = contacts, fill = real)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=0:30) +
+  facet_grid(species~., scales = "free_x", space = "free_x")
+
+ggplot(dt.cont, aes(x = len_antigen, group = paste(real,len_antigen), y = contacts, fill = real)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=0:30) +
+  facet_grid(species~tcr_gene + tcr_region, scales = "free_x", space = "free_x")
+
+ggplot(dt.cont %>% filter(tcr_region == "CDR3"), 
+       aes(x = len_antigen, group = paste(real,len_antigen), y = contacts, fill = real)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=0:30) +
+  facet_grid(species~., scales = "free_x", space = "free_x")
+```
+
+```{r}
+dt.cont.1 = dt.struct %>%
+  filter(mhc_type == "MHCI") %>%
+  group_by(pdb_id, species, tcr_gene, tcr_region, antigen_seq, pos_antigen) %>%
+  summarise(contacts = sum(calc_contact_2(distance)), real = T) %>%
+  rbind(dt.mock %>% filter(mhc_type == "MHCI") %>%
+          mutate(pdb_id = paste(pdb_id_t, pdb_id_a), antigen_seq = ag_seq_a) %>%
+          group_by(pdb_id, species, tcr_gene, tcr_region, antigen_seq, pos_antigen) %>%
+          summarise(contacts = sum(calc_contact_2(distance)), real = F))
+
+ggplot() +
+  geom_boxplot(data = dt.cont.1 %>% filter(tcr_region == "CDR3", tcr_gene == "TRB", real == F),
+               aes(x = pos_antigen, group = pos_antigen, y = contacts)) +
+  geom_point(data = dt.cont.1 %>% filter(tcr_region == "CDR3", tcr_gene == "TRB", real == T), 
+             aes(x = pos_antigen, y = contacts),
+             color = "red") +
+  facet_wrap(~antigen_seq, scales = "free_x")
+
+ggplot() +
+  geom_boxplot(data = dt.cont.1 %>% filter(tcr_region == "CDR3", tcr_gene == "TRA", real == F),
+               aes(x = pos_antigen, group = pos_antigen, y = contacts)) +
+  geom_point(data = dt.cont.1 %>% filter(tcr_region == "CDR3", tcr_gene == "TRA", real == T), 
+             aes(x = pos_antigen, y = contacts),
+             color = "red") +
+  facet_wrap(~antigen_seq, scales = "free_x")
+```
+
+```{r}
+dt.cont.1 = dt.struct %>%
+  filter(mhc_type == "MHCI") %>%
+  group_by(pdb_id, species, antigen_seq, pos_antigen) %>%
+  summarise(contacts = sum(calc_contact_2(distance)), real = T) %>%
+  rbind(dt.mock %>% filter(mhc_type == "MHCI") %>%
+          mutate(pdb_id = paste(pdb_id_t, pdb_id_a), antigen_seq = ag_seq_a) %>%
+          group_by(pdb_id, species, antigen_seq, pos_antigen) %>%
+          summarise(contacts = sum(calc_contact_2(distance)), real = F))
+
+ggplot() +
+  geom_boxplot(data = dt.cont.1 %>% filter(real == F),
+               aes(x = pos_antigen, group = pos_antigen, y = contacts)) +
+  geom_point(data = dt.cont.1 %>% filter(real == T), 
+             aes(x = pos_antigen, y = contacts),
+             color = "red") +
+  facet_wrap(~antigen_seq, scales = "free_x")
+```
+
+## Extract probability distributions from mock data
+
+### Distribution of distances
+
+This is $P(d_{CA} | l,L,k,K,G,R,H)$
+
+```{r}
+DIST_BIN_SZ = 1.5
+DIST_BINS = 0:31
+N_DIST_BINS = length(DIST_BINS)
+
+dist_density_est = function(x) {
+  de = density(x, bw = DIST_BIN_SZ, 
+          from = DIST_BINS[1], 
+          to = DIST_BINS[N_DIST_BINS], n = N_DIST_BINS)
+  data.table(dCA = de$x, PD = de$y)
+}
+
+# dt.tmp = (dt.mock %>% filter(tcr_gene == "TRB", len_tcr == 15, pos_tcr == 7, 
+#                              len_antigen == 10, pos_antigen == 4))
+# 
+# dt.est = dist_density_est(dt.tmp$distance_CA)
+# 
+# ggplot() +
+#   geom_freqpoly(data = dt.tmp, aes(x = distance_CA, y = ..density..), binwidth = 2)  +
+#   geom_line(data = dt.est, aes(x=dCA_bin,y=dCA_P), color = "red")
+
+dt.PD = dt.mock[, dist_density_est(distance_CA), by = .(pos_tcr, len_tcr, pos_antigen, len_antigen,
+            tcr_gene,tcr_region, hla)]
+# 
+# dt.est2 = (dt.PD %>% filter(hla == "A", tcr_gene == "TRB", len_tcr == 15, pos_tcr == 7, 
+#                               len_antigen == 10, pos_antigen == 4))
+# ggplot() +
+#   geom_line(data = dt.est2, aes(x=dCA_bin,y=dCA_P), color = "red")
+# 
+# sum(dt.est2$dCA_P)
+
+fwrite(dt.PD, "estimates/dCA.txt", sep = "\t")
+```
+
+### Distribution of contact probability based by aa pair and distance
+
+Thas is $P(\tilde{C} | d_{CA}, a^{(2)})$. It is estimated as $P(\tilde{C} | d_{CA}, a^{(2)}) = \frac{P(d_{CA} | \tilde{C}, a^{(2)}) P(\tilde{C} | a^{(2)})}{P(d_{CA} | a^{(2)})}$, where both $P(d_{CA} | \tilde{C}, a^{(2)})$ and $P(d_{CA} | a^{(2)})$ are estimated using kernel smoothing and $P(\tilde{C} | a^{(2)}) = \frac{\#(a^{(2)}\&d_{closest}\leq4.5)+1/2}{\#a^{(2)} + 1}$.
+
+```{r}
+remove_anchor = function(x) {
+  x %>% filter(pos_antigen != 1 & pos_antigen != len_antigen - 1)
+}
+
+dt.PC.tmp = dt.mock.all %>%
+  #remove_anchor %>%
+  mutate(aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr)),
+         contact = calc_contact(distance)) %>%
+  select(aa_pair, distance_CA, contact)
+
+dt.PC.tmp.PDA = dt.PC.tmp[, dist_density_est(distance_CA), by = .(aa_pair)]
+dt.PC.tmp.PDCA = dt.PC.tmp[, dist_density_est(distance_CA), by = .(contact, aa_pair)]
+dt.PC.tmp.PCA = dt.PC.tmp %>%
+  group_by(aa_pair, contact) %>%
+  summarise(PCA = as.numeric(n())) %>%
+  group_by(aa_pair) %>%
+  mutate(PCA = (PCA + 1/2) / (sum(PCA) + 1))
+  
+colnames(dt.PC.tmp.PDA) = c("aa_pair", "dCA", "PDA")
+colnames(dt.PC.tmp.PDCA) = c("contact", "aa_pair", "dCA", "PDCA")
+
+dt.PC = dt.PC.tmp.PDA %>%
+  merge(dt.PC.tmp.PDCA, by = c("aa_pair", "dCA")) %>%
+  merge(dt.PC.tmp.PCA, by = c("aa_pair", "contact")) %>%
+  mutate(PC = PDCA * PCA / PDA) %>%
+  group_by(aa_pair, dCA) %>%
+  mutate(PC = PC / sum(PC))
+
+aas = str_split_fixed(dt.PC$aa_pair, " ", 2)
+dt.PC$aa_1 = aas[,1]
+dt.PC$aa_2 = aas[,2]
+
+fwrite(dt.PC, "estimates/Pcontact.txt", sep = "\t")
+```
+
+```{r}
+ggplot(dt.PC, aes(x=dCA, y = PC, fill = as.factor(contact))) +
+  geom_area(color="black") +
+  facet_grid(aa_1~aa_2, scales="free_x") +
+  scale_x_continuous("dCA, A", limits = c(-0.1,25), breaks = seq(0,25,by=5)) +
+  scale_y_continuous("P(C|dCA,aa_pair)", breaks = c(0,0.5,1)) +
+  scale_fill_brewer("Contact type", palette = "Set1") +
+  theme_bw()
+```
+
+## Energy
+
+### Odds-based model - simple
+
+```{r}
+dt.e = rbind(dt.mock.all %>% 
+               select(aa_tcr, aa_antigen, distance) %>% 
+               mutate(real=F),
+             dt.struct %>% 
+               select(aa_tcr, aa_antigen, distance) %>% 
+               mutate(real=T)) %>%
+  #remove_anchor %>%
+  mutate(aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr)),
+         contact = calc_contact(distance))
+```
+
+```{r}
+dt.e.s = dt.e %>%
+  group_by(aa_pair, real, contact) %>%
+  summarise(PAAC = as.numeric(n())) %>%
+  group_by(real, contact) %>%
+  mutate(PAAC = PAAC / sum(PAAC))
+
+aas = str_split_fixed(dt.e.s$aa_pair, " ", 2)
+dt.e.s$aa_1 = aas[,1]
+dt.e.s$aa_2 = aas[,2]
+
+dt.e.s.odds = dt.e.s %>%
+  filter(contact == 1) %>%
+  group_by(aa_pair, aa_1, aa_2) %>%
+  summarise(odds = PAAC[which(real)] / PAAC[which(!real)])
+
+ggplot(dt.e.s.odds, aes(x=aa_1, y=aa_2, fill = odds)) +
+  geom_tile() +
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'RdBu')))(32), 
+                       trans = "log2", limits = c(0.1, 10)) +
+  theme_bw()
+```
+
+```{r}
+dt.imgt.aa = data.table(aa = c("A", "I", "L", "V",
+                               "R", "H", "K",
+                               "C", "M",
+                               "S", "T",
+                               "D", "E",
+                               "N", "Q",
+                               "F", "W", "Y",
+                               "G", "P"), 
+                        aa_cls = c("aliphatic", "aliphatic", "aliphatic", "aliphatic",
+                                   "basic", "basic", "basic",
+                                   "sulfur", "sulfur",
+                                   "hydroxyl", "hydroxyl",
+                                   "acidic", "acidic",
+                                   "amide", "amide",
+                                   "F", "W", "Y",#"aromatic","aromatic","aromatic",
+                                   "G", "P"))
+
+
+dt.imgt.aa.2 = expand.grid(aa.1 = dt.imgt.aa$aa, aa.2 = dt.imgt.aa$aa, stringsAsFactors=F) %>%
+  merge(dt.imgt.aa %>% mutate(aa.1 = aa, aa_cls.1 = aa_cls) %>% select(aa.1, aa_cls.1)) %>%
+  merge(dt.imgt.aa %>% mutate(aa.2 = aa, aa_cls.2 = aa_cls) %>% select(aa.2, aa_cls.2)) %>%
+  filter(aa.1 <= aa.2) %>%
+  mutate(aa_pair = ifelse(aa.1 < aa.2, paste(aa.1, aa.2), paste(aa.2, aa.1)),
+         aa_class_pair = ifelse(aa_cls.1 < aa_cls.2, paste(aa_cls.1, aa_cls.2), paste(aa_cls.2, aa_cls.1))) %>%
+  unique
+```
+
+```{r}
+dt.e.s.2 = dt.e %>%
+  merge(dt.imgt.aa.2) %>%
+  group_by(aa_class_pair, real, contact) %>%
+  summarise(PAAC = as.numeric(n())) %>%
+  group_by(real, contact) %>%
+  mutate(PAAC = PAAC / sum(PAAC))
+
+aas_cls = str_split_fixed(dt.e.s.2$aa_class_pair, " ", 2)
+dt.e.s.2$aa_cls.1 = aas_cls[,1]
+dt.e.s.2$aa_cls.2 = aas_cls[,2]
+
+dt.e.s.odds.2 = dt.e.s.2 %>%
+  filter(contact == 1) %>%
+  group_by(aa_class_pair, aa_cls.1, aa_cls.2) %>%
+  summarise(odds = PAAC[which(real)] / PAAC[which(!real)])
+
+ggplot(dt.e.s.odds.2, aes(x=aa_cls.1, y=aa_cls.2, fill = odds)) +
+  geom_tile() +
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'RdBu')))(32), 
+                       trans = "log2", limits = c(0.1, 10)) +
+  theme_bw()
+```
+
+```{r}
+dt.e.s.3 = dt.e.s %>%
+  select(aa_pair, real, contact, PAAC) %>%
+  rbind(expand.grid(aa_pair = dt.imgt.aa.2$aa_pair,
+                    real = c(T, F),
+                    contact = -1:1,
+                    PAAC = 0,
+                    stringsAsFactors = F)) %>%
+  group_by(aa_pair, real, contact) %>%
+  summarise(PAAC = sum(PAAC)) %>%
+  merge(dt.imgt.aa.2) %>%
+  merge(dt.e.s.2, by = c("aa_class_pair", "real", "contact"), allow.cartesian = T) %>%
+  mutate(PAAC = (PAAC.x + PAAC.y) / 2)
+
+aas = str_split_fixed(dt.e.s.3$aa_pair, " ", 2)
+dt.e.s.3$aa_1 = aas[,1]
+dt.e.s.3$aa_2 = aas[,2]
+
+dt.e.s.odds.3 = dt.e.s.3 %>%
+  filter(contact == 1) %>%
+  group_by(contact, aa_pair, aa_1, aa_2) %>%
+  summarise(odds = PAAC[which(real)] / PAAC[which(!real)])
+
+ggplot(dt.e.s.odds.3, aes(x=aa_1, y=aa_2, fill = odds)) +
+  geom_tile() +
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'RdBu')))(32), 
+                       trans = "log2", limits = c(2^-3.5, 2^3.5)) +
+  theme_bw()
+```
+
+### Odds based model - logistic
+
+```
+fit.e = glm(contact ~ PCAA.logodds + aa_pair,
+            data = dt.struct.test %>% 
+              filter(distance_CA <= 25) %>%
+              mutate(PCAA.logodds = log((PCAA+1e-7) / (1-PCAA))),
+            family = "binomial")
+
+summary(fit.e)
+```
+
+```{r}
+dt.energy.odds = dt.e.s.odds.3 %>%
+  ungroup %>%
+  select(aa_pair, odds)
+```
+
+## Model for real structural data
+
+```{r}
+dt.struct.test = dt.struct %>%
+  filter(species == "Homo_sapiens",
+         len_antigen %in% 8:11,
+         mhc_type == "MHCI",
+         pos_antigen != 1 & pos_antigen != len_antigen - 1) %>%
+  mutate(hla = substr(mhc_a_allele, 1, 1),
+         aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr)),
+         contact_real = calc_contact(distance)) %>%
+  merge(dt.PD, allow.cartesian=T, by = c("hla", "tcr_gene", "tcr_region",
+                                         "len_tcr", "pos_tcr", "len_antigen", "pos_antigen")) %>%
+  merge(dt.PC %>% filter(contact == 1), allow.cartesian=T, by = c("dCA", "aa_pair")) %>%
+  group_by(contact_real, distance_CA,
+           antigen_seq, tcr_region_seq, pdb_id, 
+           tcr_gene, tcr_region, pos_tcr, pos_antigen,
+           contact) %>%
+  summarise(PCAA = sum(PC * PD),
+            aa_pair = aa_pair[1],
+            aa_antigen = aa_antigen[1],
+            aa_tcr = aa_tcr[1])
+
+dt.struct.test.e = dt.struct.test %>%
+  merge(dt.energy.odds, all.x = T)
+```
+
+```{r}
+dt.tmp = dt.struct.test.e %>% filter(distance_CA <= 15)
+fit = glm(contact_real ~ I(log(PCAA)) + I(log(odds)), 
+          data = dt.tmp,
+          family = "binomial")
+
+summary(fit)
+
+dt.tmp$fits = fit$fitted.values
+
+ggplot(dt.tmp, aes(x=PCAA, group = contact_real, color = as.factor(contact_real))) +
+  geom_density()
+
+ggplot(dt.tmp, aes(x=fits, group = contact_real, color = as.factor(contact_real))) +
+  geom_density()
+```
+
+```{r}
+ggplot(dt.struct.test.e, aes(x=PCAA, group = contact_real, color = as.factor(contact_real))) +
+  stat_ecdf()
+```
+
+```{r}
+make_roc = function(x, variable, dist_CA_max,tcr_gene,tcr_region) {
+  print(x)
+
+  data.table(sens = x$sensitivities,
+             spec = x$specificities,
+             thr = x$thresholds,
+             dist_CA_max = dist_CA_max,
+             variable = variable, 
+             tcr_gene = tcr_gene,
+             tcr_region = tcr_region,
+             auc = x$auc)
+}
+
+df.roc = data.frame()
+
+for (dist_CA_max in seq(15, 25, by = 5)) {
+for (tg in c("TRA", "TRB")) {
+for (tr in c("CDR1", "CDR2", "CDR3")) {
+  df.roc = with(subset(dt.struct.test.e, distance_CA <= dist_CA_max &
+                         tcr_gene == tg & tcr_region == tr),
+                rbind(df.roc, 
+                      make_roc(roc(contact_real, PCAA, ci=T), 
+                               "P(C|AA,X)", dist_CA_max, tg, tr),
+                      make_roc(roc(contact_real, PCAA / (PCAA + (1-PCAA) / odds), ci=T), 
+                               "P(C|AA,X,E)", dist_CA_max, tg, tr)))
+}
+}
+}
+
+ggplot(df.roc, aes(x=spec, y=sens)) +
+  geom_abline(slope = 1, intercept = 1) +
+  geom_line(aes(color = as.factor(dist_CA_max), linetype = variable)) +
+  scale_x_reverse("Specificity") +
+  scale_y_continuous("Sensitivity", limits=c(0,1)) +
+  scale_color_brewer("Max dCA", palette = "Set1") +
+  scale_linetype_manual("Parameter", values = c("dotted", "solid")) +
+  facet_grid(tcr_gene~tcr_region) +
+  theme_bw()
+```
+
+TODO: some contact maps
+
+
+## VDJdb data - paired
+
+Load data
+
+```{r}
+dt.vdjdb.paired = fread("vdjdb_full.txt") %>%
+  filter(species %in% c("HomoSapiens", "MusMusculus"), mhc.class == "MHCI",
+         meta.structure.id == "",
+         cdr3.alpha != "", cdr3.beta != "",
+         nchar(antigen.epitope) %in% 8:11,
+         nchar(cdr3.alpha) %in% 11:16 & nchar(cdr3.beta) %in% 11:16) %>%
+  mutate(hla.a = str_split_fixed(mhc.a, fixed(":"), 2)[,1],
+         hla = ifelse(species == "HomoSapiens", substr(mhc.a, 5, 5), "H-2")) %>% # TODO - mouse alleles in struct data
+  select(species, cdr3.alpha, v.alpha, cdr3.beta, v.beta, hla.a, hla, antigen.epitope) %>%
+  mutate(v.alpha = str_split_fixed(v.alpha, fixed("*"), 2)[,1],
+         v.beta = str_split_fixed(v.beta, fixed("*"), 2)[,1],
+         tcr.id = paste(cdr3.alpha, v.alpha, cdr3.beta, v.beta))  %>%
+  unique
+```
+Remove TCRs with more than one specificity
+
+```{r}
+dt.vdjdb.paired.cross = dt.vdjdb.paired %>% group_by(tcr.id) %>% summarise(total = n()) %>% arrange(-total)
+
+dt.vdjdb.paired = dt.vdjdb.paired %>%
+  filter(tcr.id %in% subset(dt.vdjdb.paired.cross, total == 1)$tcr.id)
+
+dt.vdjdb.paired.epicount = dt.vdjdb.paired %>% group_by(species, antigen.epitope) %>% summarise(total = n()) %>% arrange(-total)
+
+dt.vdjdb.paired = dt.vdjdb.paired %>%
+  filter(antigen.epitope %in% subset(dt.vdjdb.paired.epicount, total > 40)$antigen.epitope)
+```
+
+Append CDR1,2
+
+```{r}
+dt.cdr12.meta = fread("zcat cdr12.txt.gz") %>%
+  mutate(v.segm = str_split_fixed(gene, fixed("*"), 2)[,1],
+         tcr_gene = substr(v.segm, 1, 3)) %>%
+  filter(species %in% c("HomoSapiens", "MusMusculus"), 
+         grepl("*01", gene, fixed=T),
+         tcr_gene %in% c("TRA", "TRB")) %>%
+  select(species, tcr_gene, v.segm, cdr1aa, cdr2aa)
+
+dt.cdr12.meta.a = dt.cdr12.meta %>%
+  filter(tcr_gene == "TRA") %>%
+  mutate(v.alpha = v.segm, cdr1.alpha = cdr1aa, cdr2.alpha = cdr2aa) %>%
+  select(species, v.alpha, cdr1.alpha, cdr2.alpha)
+
+dt.cdr12.meta.b = dt.cdr12.meta %>%
+  filter(tcr_gene == "TRB") %>%
+  mutate(v.beta = v.segm, cdr1.beta = cdr1aa, cdr2.beta = cdr2aa) %>%
+  select(species, v.beta, cdr1.beta, cdr2.beta)
+
+dt.vdjdb.paired = dt.vdjdb.paired %>%
+  merge(dt.cdr12.meta.a, by = c("species", "v.alpha")) %>%
+  merge(dt.cdr12.meta.b, by = c("species", "v.beta"))
+```
+
+Create test set
+
+```{r}
+dt.tmp.tcr = dt.vdjdb.paired %>%
+  select(tcr.id, species)
+dt.tmp.ag = dt.vdjdb.paired %>%
+  select(antigen.epitope, species) %>%
+  unique
+real_cplx = with(dt.vdjdb.paired, paste(tcr.id, species, antigen.epitope))
+
+dt.comb = as.data.table(expand.grid(tcr.id = dt.tmp.tcr$tcr.id,
+                                    species = unique(dt.tmp.tcr$species),
+                                    antigen.epitope = dt.tmp.ag$antigen.epitope,
+                                    stringsAsFactors = F)) %>%
+  merge(dt.tmp.tcr, by = c("tcr.id", "species")) %>% merge(dt.tmp.ag, by = c("antigen.epitope", "species")) %>% # same species
+  filter(!(paste(tcr.id, species, antigen.epitope) %in% real_cplx))
+
+dt.vdjdb.paired.test = dt.comb %>%
+  merge(dt.vdjdb.paired %>%
+          select(tcr.id, v.beta, v.alpha, cdr3.alpha, cdr3.beta, cdr1.alpha, cdr2.alpha, cdr1.beta, cdr2.beta),
+        by = "tcr.id") %>%
+  merge(dt.vdjdb.paired %>%
+          select(antigen.epitope, hla.a, hla) %>% unique,
+        by = "antigen.epitope") %>%
+  mutate(real = F) %>%
+  rbind(dt.vdjdb.paired %>% mutate(real = T))
+```
+
+Flatten data (on region level)
+
+```{r}
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test %>%
+  mutate(tcr_gene = "TRA", tcr_region = "CDR1", tcr_region_seq = cdr1.alpha)
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test.f1 %>%
+  rbind(dt.vdjdb.paired.test %>%
+          mutate(tcr_gene = "TRA", tcr_region = "CDR2", tcr_region_seq = cdr2.alpha))
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test.f1 %>%
+  rbind(dt.vdjdb.paired.test %>%
+          mutate(tcr_gene = "TRA", tcr_region = "CDR3", tcr_region_seq = cdr3.alpha))
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test.f1 %>%
+  rbind(dt.vdjdb.paired.test %>%
+          mutate(tcr_gene = "TRB", tcr_region = "CDR1", tcr_region_seq = cdr1.beta))
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test.f1 %>%
+  rbind(dt.vdjdb.paired.test %>%
+          mutate(tcr_gene = "TRB", tcr_region = "CDR2", tcr_region_seq = cdr2.beta))
+dt.vdjdb.paired.test.f1 = dt.vdjdb.paired.test.f1 %>%
+  rbind(dt.vdjdb.paired.test %>%
+          mutate(tcr_gene = "TRB", tcr_region = "CDR3", tcr_region_seq = cdr3.beta))
+```
+
+Flatten data (on amino acid level)
+
+```{r}
+dt.cdr.aa = rbindlist(lapply(strsplit(unique(dt.vdjdb.paired.test.f1$tcr_region_seq), split = ""),
+                             function(x) data.table(pos_tcr = 1:length(x) - 1,
+                                                    len_tcr = length(x),
+                                                    aa_tcr = x,
+                                                    tcr_region_seq = paste0(x, collapse = ""))))
+
+dt.ag.aa = rbindlist(lapply(strsplit(unique(dt.vdjdb.paired.test.f1$antigen.epitope), split = ""),
+                            function(x) data.table(pos_antigen = 1:length(x) - 1,
+                                                   len_antigen = length(x),
+                                                   aa_antigen = x,
+                                                   antigen.epitope = paste0(x, collapse = ""))))
+
+dt.vdjdb.paired.test.f2 = dt.vdjdb.paired.test.f1 %>% 
+  mutate(idx = as.integer(as.factor(paste(tcr.id, antigen.epitope)))) %>%
+  select(idx, real,
+         species, hla, hla.a, antigen.epitope,
+         #v.alpha, v.beta,
+         tcr_gene, tcr_region, tcr_region_seq) %>%
+  merge(dt.cdr.aa, allow.cartesian=T, by = "tcr_region_seq") %>% 
+  merge(dt.ag.aa, allow.cartesian=T, by = "antigen.epitope") %>%
+  mutate(aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr)))
+
+dt.vdjdb.paired.test.f3 = dt.vdjdb.paired.test.f1 %>% 
+  mutate(idx = as.integer(as.factor(paste(tcr.id, antigen.epitope)))) %>%
+  select(idx, real,
+         species, hla, hla.a, antigen.epitope,
+         #v.alpha, v.beta,
+         tcr_gene, tcr_region, tcr_region_seq) %>%
+  merge(dt.cdr.aa, allow.cartesian=T, by = "tcr_region_seq") %>% 
+  merge(dt.ag.aa, allow.cartesian=T, by = "antigen.epitope") %>%
+  mutate(aa_antigen = "A",
+         aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr)))
+```
+
+## Model validation - VDJdb
+
+```{r}
+dt.vdjdb.flat.aac = dt.vdjdb.paired.test.f2 %>%
+  filter(species == "HomoSapiens") %>%
+  merge(dt.PD, allow.cartesian=T, by = c("hla", "tcr_gene", "tcr_region",
+                                         "len_tcr", "pos_tcr", "len_antigen", "pos_antigen")) %>%
+  merge(dt.PC %>% filter(contact %in% c(-1,1)), allow.cartesian=T, by = c("dCA", "aa_pair")) %>%
+  group_by(real, 
+           antigen.epitope, idx, 
+           tcr_gene, tcr_region, 
+           pos_tcr, pos_antigen,
+           contact) %>%
+  summarise(PCAA = sum(PC * PD),
+            aa_pair = aa_pair[1],
+            aa_antigen = aa_antigen[1],
+            aa_tcr = aa_tcr[1]) 
+```
+
+```{r}
+dt.vdjdb.flat.aac2 = dt.vdjdb.paired.test.f3 %>%
+  filter(species == "HomoSapiens") %>%
+  merge(dt.PD, allow.cartesian=T, by = c("hla", "tcr_gene", "tcr_region",
+                                         "len_tcr", "pos_tcr", "len_antigen", "pos_antigen")) %>%
+  merge(dt.PC %>% filter(contact %in% c(-1,1)), allow.cartesian=T, by = c("dCA", "aa_pair")) %>%
+  group_by(real, 
+           antigen.epitope, idx, 
+           tcr_gene, tcr_region, 
+           pos_tcr, pos_antigen,
+           contact) %>%
+  summarise(PCAA = sum(PC * PD),
+            aa_pair = aa_pair[1],
+            aa_antigen = aa_antigen[1],
+            aa_tcr = aa_tcr[1]) 
+```
+
+```{r}
+dt.vdjdb.flat.aac.v = dt.vdjdb.flat.aac %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx) %>%
+  summarise(NC = sum(ifelse(contact == 1 & PCAA > 0.5, PCAA, 0)),
+            NCM = sum(ifelse(contact == -1, PCAA, 0)),
+            E = sum(ifelse(contact == 1, log(odds) * PCAA, 0)),
+            E2 = sum(ifelse(contact == 1, log(odds) * PCAA / (PCAA + (1-PCAA)/odds), 0)),
+            NC2 = sum(ifelse(contact == 1, PCAA / (PCAA + (1-PCAA)/odds), 0)))
+
+dt.vdjdb.flat.aac.v2 = dt.vdjdb.flat.aac2 %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx) %>%
+  summarise(NC_0 = sum(ifelse(contact == 1 & PCAA > 0.5, PCAA, 0)),
+            NCM_0 = sum(ifelse(contact == -1, PCAA, 0)),
+            E_0 = sum(ifelse(contact == 1, log(odds) * PCAA, 0)),
+            E2_0 = sum(ifelse(contact == 1, log(odds) * PCAA / (PCAA + (1-PCAA)/odds), 0)),
+            NC2_0 = sum(ifelse(contact == 1, PCAA / (PCAA + (1-PCAA)/odds), 0))) %>%
+  merge(dt.vdjdb.flat.aac.v)
+```
+
+```{r}
+dt.vdjdb.flat.aac.p = dt.vdjdb.flat.aac %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx, pos_antigen) %>%
+  summarise(NC = sum(ifelse(contact == 1, PCAA, 0)),
+            NCM = sum(ifelse(contact == -1, PCAA, 0)),
+            E = sum(ifelse(contact == 1, log(odds) * PCAA, 0)),
+            E2 = sum(ifelse(contact == 1, log(odds) * PCAA / (PCAA + (1-PCAA)/odds), 0)),
+            NC2 = sum(ifelse(contact == 1, PCAA / (PCAA + (1-PCAA)/odds), 0)))
+
+dt.vdjdb.flat.aac.p2 = dt.vdjdb.flat.aac2 %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx, pos_antigen) %>%
+  summarise(NC_0 = sum(ifelse(contact == 1, PCAA, 0)),
+            NCM_0 = sum(ifelse(contact == -1, PCAA, 0)),
+            E_0 = sum(ifelse(contact == 1, log(odds) * PCAA, 0)),
+            E2_0 = sum(ifelse(contact == 1, log(odds) * PCAA / (PCAA + (1-PCAA)/odds), 0)),
+            NC2_0 = sum(ifelse(contact == 1, PCAA / (PCAA + (1-PCAA)/odds), 0))) %>%
+  merge(dt.vdjdb.flat.aac.p)
+```
+
+```{r}
+ggplot(dt.vdjdb.flat.aac.p2, aes(x = pos_antigen, group = paste(pos_antigen, real), y = E2 - E2_0, 
+                                 color = real)) +
+  geom_boxplot() +
+  facet_wrap(~antigen.epitope)
+```
+
+```{r}
+ggplot(dt.vdjdb.flat.aac.v2, aes(x = NC_0, y = NC, color = real)) +
+  geom_point() +
+  facet_wrap(~antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v2, aes(x = NC-NC_0, color = real)) +
+  stat_ecdf() +
+  facet_wrap(~antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = E2, color = real)) +
+  stat_ecdf() +
+  facet_wrap(~antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = E, y = NC, color = real)) +
+  geom_density2d() +
+  facet_wrap(~antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = NC_A / len_A, y = NC_B / len_B, color = real)) +
+  geom_density2d() +
+  facet_wrap(~antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = NC_B, y = NCM_B, color = real)) +
+  geom_point(shape=21) +
+  facet_wrap(~antigen.epitope)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## VDJdb data
+
+Load and filter data from VDJdb
+
+```{r}
+dt.vdjdb = fread("vdjdb.slim.txt") %>%
+  filter(species == "HomoSapiens", 
+         mhc.class == "MHCI", 
+         nchar(antigen.epitope) %in% 8:11,
+         nchar(cdr3) %in% 11:16,
+         gene == "TRB") %>% # have good data for these lengths
+  mutate(hla = substr(mhc.a, 5, 5), 
+         hla.a = substr(mhc.a, 5, 8), 
+         tcr_gene = gene,
+         v.segm = str_split_fixed(v.segm, fixed("*"), 2)[,1],
+         idx = 1:n(),
+         real = T) %>%
+  select(real, hla, hla.a, tcr_gene, v.segm, cdr3, antigen.epitope, idx)
+
+dt.vdjdb.epicount = dt.vdjdb %>%
+  group_by(antigen.epitope) %>%
+  summarise(count = n()) %>%
+  arrange(-count)
+
+print(dt.vdjdb.epicount)
+
+dt.vdjdb = dt.vdjdb %>%
+  filter(antigen.epitope %in% subset(dt.vdjdb.epicount, count >= 50)$antigen.epitope)
+```
+
+### V usage and HLA
+
+```{r}
+dt.vdjdb.v = dt.vdjdb %>%
+  group_by(tcr_gene, hla.a, v.segm) %>%
+  summarise(count = n()) %>%
+  group_by(tcr_gene, v.segm) %>%
+  mutate(count_v = sum(count)) %>%
+  group_by(tcr_gene, hla.a) %>%
+  mutate(count_hla = sum(count)) %>%
+  group_by(tcr_gene) %>%
+  mutate(odds.vhla = count * sum(count) / count_v / count_hla) %>%
+  filter(count_v >= 50 & count_hla >= 50)
+
+ggplot(dt.vdjdb.v, aes(x=hla.a, y=v.segm, fill = odds.vhla)) +
+  geom_tile() +
+  scale_fill_gradientn(colors=colorRampPalette(rev(brewer.pal(11, 'RdBu')))(32), 
+                       trans = "log2", limits = c(2^-4, 2^4)) +
+  theme_bw()
+```
+
+
+### Flatten VDJdb data
+
+Append CDR1,2 sequences
+
+```{r}
+dt.cdr12.meta = fread("zcat cdr12.txt.gz") %>%
+  mutate(v.segm = str_split_fixed(gene, fixed("*"), 2)[,1],
+         tcr_gene = substr(v.segm, 1, 3)) %>%
+  filter(species == "HomoSapiens", 
+         grepl("*01", gene, fixed=T),
+         tcr_gene %in% c("TRA", "TRB")) %>%
+  select(tcr_gene, v.segm, cdr1aa, cdr2aa)
+
+dt.vdjdb = merge(dt.vdjdb, dt.cdr12.meta)
+```
+
+Generate random data by shuffling epitope sequence
+
+```{r}
+set.seed(42)
+
+shuffle_str = function(str) {
+  unlist(lapply(strsplit(str, ""), function(x) paste0(sample(x), collapse="")))
+}
+
+dt.vdjdb.epihla = dt.vdjdb %>%
+  select(hla, hla.a, antigen.epitope) %>%
+  unique
+
+#todo - can generate more
+dt.vdjdb.test = dt.vdjdb
+for (i in 1:2) {
+  dt.vdjdb.test = dt.vdjdb.test %>%
+    rbind(dt.vdjdb %>%
+            #group_by(v.set, tcr_gene) %>%
+            group_by(tcr_gene) %>%
+            mutate(antigen.epitope = sample(antigen.epitope),#shuffle_str(antigen.epitope),
+                   real = F,
+                   idx = i * n() + 1:n()) %>%
+            filter(!(paste(cdr3, antigen.epitope) %in% paste(dt.vdjdb$cdr3, 
+                                                             dt.vdjdb$antigen.epitope))) %>%
+            select(tcr_gene, v.segm, real, cdr3, antigen.epitope, idx, cdr1aa, cdr2aa) %>%
+            merge(dt.vdjdb.epihla, by = c("antigen.epitope"), allow.cartesian=T))
+}
+```
+
+Flatten by CDR
+
+```{r}
+dt.vdjdb.test.f1 = rbind(dt.vdjdb.test %>%
+                           mutate(tcr_region = "CDR3", 
+                                  tcr_region_seq = cdr3),
+                         dt.vdjdb.test %>%
+                           mutate(tcr_region = "CDR2", 
+                                  tcr_region_seq = cdr2aa),
+                         dt.vdjdb.test %>%
+                           mutate(tcr_region = "CDR1", 
+                                  tcr_region_seq = cdr1aa))
+
+dt.vdjdb.test.f1$cdr3 = NULL
+dt.vdjdb.test.f1$cdr2aa = NULL
+dt.vdjdb.test.f1$cdr1aa = NULL
+```
+
+Flatten to AA pairs
+
+```{r}
+dt.vdjdb.cdr = rbindlist(lapply(strsplit(unique(dt.vdjdb.test.f1$tcr_region_seq), split = ""),
+                                function(x) data.table(pos_tcr = 1:length(x) - 1,
+                                                       len_tcr = length(x),
+                                                       aa_tcr = x,
+                                                       tcr_region_seq = paste0(x, collapse = ""))))
+
+dt.vdjdb.ag = rbindlist(lapply(strsplit(unique(dt.vdjdb.test.f1$antigen.epitope), split = ""),
+                                function(x) data.table(pos_antigen = 1:length(x) - 1,
+                                                       len_antigen = length(x),
+                                                       aa_antigen = x,
+                                                       antigen.epitope = paste0(x, collapse = ""))))
+
+dt.vdjdb.test.f2 = dt.vdjdb.test.f1 %>% 
+  merge(dt.vdjdb.cdr, allow.cartesian=T, by = "tcr_region_seq") %>% 
+  merge(dt.vdjdb.ag, allow.cartesian=T, by = "antigen.epitope") %>%
+  mutate(aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr))) %>%
+  filter(pos_antigen != 1 & pos_antigen != len_antigen - 1)
+
+dt.vdjdb.test.f3 = dt.vdjdb.test.f1 %>% 
+  merge(dt.vdjdb.cdr, allow.cartesian=T, by = "tcr_region_seq") %>% 
+  merge(dt.vdjdb.ag, allow.cartesian=T, by = "antigen.epitope") %>%
+  mutate(aa_antigen = "A",
+    aa_pair = ifelse(aa_tcr < aa_antigen, paste(aa_tcr, aa_antigen), paste(aa_antigen, aa_tcr))) %>%
+  filter(pos_antigen != 1 & pos_antigen != len_antigen - 1)
+```
+
+## Model
+
+Append contact prob info
+
+```{r}
+dt.vdjdb.flat.aac = dt.vdjdb.test.f2 %>%
+  merge(dt.PD, allow.cartesian=T, by = c("hla", "tcr_gene", "tcr_region",
+                                         "len_tcr", "pos_tcr", "len_antigen", "pos_antigen")) %>%
+  merge(dt.PC %>% filter(contact %in% c(-1, 1)), allow.cartesian=T, by = c("dCA", "aa_pair")) %>%
+  group_by(real, 
+           hla.a, antigen.epitope, idx, 
+           tcr_gene, tcr_region, v.segm,
+           pos_tcr, pos_antigen,
+           contact) %>%
+  summarise(PCAA = sum(PC * PD),
+            aa_pair = aa_pair[1],
+            aa_antigen = aa_antigen[1],
+            aa_tcr = aa_tcr[1]) 
+
+dt.vdjdb.flat.aac.2 = dt.vdjdb.test.f3 %>%
+  merge(dt.PD, allow.cartesian=T, by = c("hla", "tcr_gene", "tcr_region",
+                                         "len_tcr", "pos_tcr", "len_antigen", "pos_antigen")) %>%
+  merge(dt.PC %>% filter(contact %in% c(-1, 1)), allow.cartesian=T, by = c("dCA", "aa_pair")) %>%
+  group_by(real, 
+           hla.a, antigen.epitope, idx, 
+           tcr_gene, tcr_region, v.segm,
+           pos_tcr, pos_antigen,
+           contact) %>%
+  summarise(PCAA = sum(PC * PD),
+            aa_pair = aa_pair[1],
+            aa_antigen = aa_antigen[1],
+            aa_tcr = aa_tcr[1]) 
+```
+
+Computing contact energy, etc
+
+```{r}
+dt.vdjdb.flat.aac.v = dt.vdjdb.flat.aac %>%
+  filter(tcr_gene == "TRB") %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx, hla.a, v.segm) %>%
+  summarise(NC = sum(ifelse(contact == 1, PCAA, 0)),
+            NCM = sum(ifelse(contact == -1, PCAA, 0)),
+            E = sum(ifelse(contact == 1, log(odds) * PCAA, 0)),
+            E2 = sum(ifelse(contact == 1, PCAA / (PCAA + (1-PCAA)/odds), 0))) %>%
+  merge(dt.vdjdb.v, all.x=T, by = c("hla.a", "v.segm")) %>%
+  mutate(EHLA = log(ifelse(is.na(odds.vhla), 1, odds.vhla)))
+```
+
+```{r}
+ggplot(dt.vdjdb.flat.aac.v, aes(x = NC, color = real)) +
+  stat_ecdf() +
+  facet_wrap(~hla.a+antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = E, color = real)) +
+  stat_ecdf() +
+  facet_wrap(~hla.a+antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = E2, color = real)) +
+  stat_ecdf() +
+  facet_wrap(~hla.a+antigen.epitope)
+
+ggplot(dt.vdjdb.flat.aac.v, aes(x = E, y = NC, color = real)) +
+  geom_density2d() +
+  facet_wrap(~hla.a+antigen.epitope)
+```
+
+```{r}
+dt.vdjdb.flat.aac.v2 = dt.vdjdb.flat.aac %>%
+  filter(tcr_gene == "TRB", contact == 1) %>%
+  merge(dt.energy.odds, all.x=T) %>%
+  mutate(odds = ifelse(is.na(odds), 1, odds)) %>%
+  group_by(real, antigen.epitope, idx, hla.a, v.segm,
+           epi.len = nchar(antigen.epitope), pos_antigen) %>%
+  summarise(NC = sum(PCAA),
+            E = sum(log(odds) * PCAA),
+            E2 = sum(PCAA / (PCAA + (1-PCAA)/odds)))
+```
+
+```{r}
+ggplot(dt.vdjdb.flat.aac.v2, aes(x=pos_antigen, group = idx, y = NC, color = real)) +
+  geom_line(alpha=0.3) +
+  facet_wrap(~epi.len, scales = "free_x")
+```
+
+### Fit a simple GLM model
+
+```{r}
+fit = glm(real ~ EHLA + NC + 0,
+          data = dt.vdjdb.flat.aac.v,
+          family = "binomial")
+
+summary(fit)
+plot(fit)
+```
+
+
+
+
+### Accuracy
+
+
+
+## Validation on independent examples
+
+
+### Mutant complexes with known affinity
+
+
+### HIV escape mutations
+
+
+

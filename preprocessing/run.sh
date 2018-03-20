@@ -16,4 +16,4 @@ export PDB_DIR="`pwd`/annotation/tmp/"
 #groovy -cp . CombineAnnotation.groovy ../output/annotations.txt ../output/mhc.annotations.txt ../output/tcr.annotations.txt ../output/final.annotations.txt 2>&1 | tee ../logs/combine.log
 #cd ..
 
-python structure/src/structure.py -i output/final.annotations.txt -o output/structure.txt
+python structure/src/structure.py -i output/final.annotations.txt -o output/structure.txt -m output/mock_structure.txt --mock #2>&1 | tee logs/structure.log

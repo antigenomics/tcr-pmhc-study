@@ -13,11 +13,11 @@ from os import chdir, path, makedirs
 warnings.filterwarnings("ignore")
 
 parser = argparse.ArgumentParser(description="backbone_coordinates.py\nCompute X/Y/Z coordinates of Calpha atoms of CDR loops and antigen. C terminal residue is used as origin, coordinates are rotated so that C-N terminus direction is aligned with X axis and YZ projection of the center of mass is aligned with Z axis.")
-parser.add_argument("-i", nargs=1, type=str, default="../../result/final.annotations.txt",
+parser.add_argument("-i", nargs=1, type=str, default="../../output/final.annotations.txt",
                     help="Annotation table path.")
-parser.add_argument("-o", nargs=1, type=str, default="../../result/backbone.txt",
+parser.add_argument("-o", nargs=1, type=str, default="../../output/backbone.txt",
                     help="Output table path.")
-parser.add_argument("-o2", nargs=1, type=str, default="../../result/backbone_ag.txt",
+parser.add_argument("-o2", nargs=1, type=str, default="../../output/backbone_ag.txt",
                     help="Output table path for antigen.")
 parser.add_argument("-t", nargs=1, type=str, default="../tmp/",
                     help="Temporary folder path")

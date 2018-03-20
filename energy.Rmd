@@ -1,0 +1,552 @@
+---
+title: "energy"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(reshape2)
+library(dplyr)
+library(NMF)
+library(GPfit)
+library(RColorBrewer)
+library(ggplot2)
+library(MASS)
+library(stringr)
+library(nloptr)
+select = dplyr::select
+```
+
+Load data. Filter complexes where TCR and pMHC are too far away
+
+```{r}
+dt.mock = fread("preprocessing/output/mock_structure.txt") %>% filter(pdb_id_a != "4p46", pdb_id_t != "4p46")
+dt.struct = fread("preprocessing/output/structure.txt") %>% filter(pdb_id != "4p46")
+dt.annot = fread("preprocessing/output/final.annotations.txt") %>% filter(pdb_id != "4p46")
+
+mock.id.good = dt.mock %>%
+  group_by(pdb_id_a, pdb_id_t) %>%
+  summarise(dist.min = min(distance_CA)) %>%
+  filter(dist.min <= 12) %>% 
+  mutate(x = paste(pdb_id_a, pdb_id_t)) %>%
+  .$x
+
+dt.mock = dt.mock %>% filter(paste(pdb_id_a, pdb_id_t) %in% mock.id.good)
+
+real.id.good = dt.struct %>%
+  group_by(pdb_id) %>%
+  summarise(dist.min = min(distance_CA)) %>%
+  filter(dist.min <= 12) %>%
+  .$pdb_id
+
+dt.struct = dt.struct %>% filter(pdb_id %in% real.id.good)
+```
+
+Compute weights for mock combinations, so we get AA pair frequency distribution closer to real data
+
+```{r}
+dt.mock.s1 = dt.mock %>%
+  group_by(tcr_gene, tcr_region, pdb_id_t) %>%
+  summarise(count.1 = length(unique(pdb_id_a)))
+
+dt.mock.s2 = dt.mock %>%
+  group_by(pdb_id_a) %>%
+  summarise(count.2 = length(unique(paste(tcr_gene, tcr_region, pdb_id_t))))
+
+dt.mock.wt = merge(as.data.frame(dt.mock.s1), as.data.frame(dt.mock.s2)) %>%
+  mutate(weight = 1/(count.1*count.2)/sum(1/(count.1*count.2)) / mean(1/(count.1*count.2)/sum(1/(count.1*count.2))))
+```
+
+## Contact energies
+
+Compute AA contacts from real data and symmetrize
+
+```{r}
+CONTACT_THRESHOLD_MIN = 5
+CONTACT_THRESHOLD_MAX = 2
+calc_contact = function(x) {
+  ifelse(x > CONTACT_THRESHOLD_MIN, 0,
+         ifelse(x > CONTACT_THRESHOLD_MAX, 1, 0))
+}
+
+dt.contacts.real = dt.struct %>%
+  mutate(contact = calc_contact(distance)) %>%
+  filter(contact == 1) %>%
+  group_by(aa_tcr, aa_antigen) %>%
+  summarise(contacts_real = n())
+
+aas = with(dt.contacts.real, unique(c(aa_tcr, aa_antigen)))
+df.aa = expand.grid(aa.1 = aas, aa.2 = aas) %>%
+          mutate(aa.1 = as.character(aa.1), aa.2 = as.character(aa.2))
+
+dt.contacts.real = dt.contacts.real %>% 
+  mutate(aa.1 = aa_tcr, aa.2 = aa_antigen) %>%
+  select(-aa_tcr, -aa_antigen) %>%
+  rbind(dt.contacts.real %>% 
+          mutate(aa.1 = aa_antigen, aa.2 = aa_tcr) %>%
+          select(-aa_tcr, -aa_antigen)) %>%
+  merge(df.aa, all.y = T) %>%
+  mutate(contacts_real = ifelse(is.na(contacts_real), 0, contacts_real)) %>%
+  group_by(aa.1, aa.2) %>%
+  summarise(contacts_real = sum(contacts_real))
+
+ggplot(dt.contacts.real, aes(x = aa.1, y = aa.2, fill = contacts_real)) +
+  geom_tile() +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'PuBuGn'))(32)) +
+  theme_bw()
+```
+
+```{r}
+dt.contacts.mock = dt.mock %>%
+  mutate(contact = calc_contact(distance)) %>%
+  filter(contact == 1) %>%
+  merge(dt.mock.wt) %>%
+  group_by(aa_tcr, aa_antigen) %>%
+  summarise(contacts_mock = sum(weight))
+
+dt.contacts.mock = dt.contacts.mock %>% 
+  mutate(aa.1 = aa_tcr, aa.2 = aa_antigen) %>%
+  select(-aa_tcr, -aa_antigen) %>%
+  rbind(dt.contacts.mock %>% 
+          mutate(aa.1 = aa_antigen, aa.2 = aa_tcr) %>%
+          select(-aa_tcr, -aa_antigen)) %>%
+  merge(df.aa, all.y = T) %>%
+  mutate(contacts_mock = ifelse(is.na(contacts_mock), 0, contacts_mock)) %>%
+  group_by(aa.1, aa.2) %>%
+  summarise(contacts_mock = sum(contacts_mock))
+
+ggplot(dt.contacts.mock, aes(x = aa.1, y = aa.2, fill = contacts_mock)) +
+  geom_tile() +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'PuBuGn'))(32)) +
+  theme_bw()
+```
+
+```{r}
+dt.contacts = merge(dt.contacts.mock,
+                    dt.contacts.real) %>%
+  mutate(p_real = (contacts_real + 1) / sum(contacts_real + 1),
+         p_mock = (contacts_mock + 1) / sum(contacts_mock + 1),
+         odds = log2(p_real / p_mock))
+
+ggplot(dt.contacts, aes(x = aa.1, y = aa.2, fill = odds)) +
+  geom_tile() +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32),
+        limits = c(-5, 5)) +
+  theme_bw()
+```
+
+```{r}
+fwrite(dt.contacts, "estimates/energy.txt", sep = "\t")
+```
+
+### AA property analysis
+
+```{r}
+dt.kidera = fread("kidera.txt")# %>%
+  #melt() %>%
+  #group_by(variable) %>%
+  #mutate(value = (value - min(value)) / (max(value) - min(value))) %>%
+  #dcast(aa ~ variable)
+
+dt.kidera.1 = dt.kidera %>%
+          melt %>%
+          mutate(aa.1 = aa, value.1 = value) %>%
+          group_by(variable) %>%
+          mutate(value.1r = as.integer(rank(value, ties.method = "first")), 
+                 value.1s = scale(value)) %>%
+          select(-aa, -value)
+
+dt.kidera.2 = dt.kidera %>%
+          melt %>%
+          mutate(aa.2 = aa, value.2 = value) %>%
+          group_by(variable) %>%
+          mutate(value.2r = as.integer(rank(value, ties.method = "first")), 
+                 value.2s = scale(value)) %>%
+          select(-aa, -value)
+
+dt.kidera.11 = dt.kidera
+colnames(dt.kidera.11) = paste0(colnames(dt.kidera.11), ".1")
+dt.kidera.22 = dt.kidera
+colnames(dt.kidera.22) = paste0(colnames(dt.kidera.22), ".2")
+
+dt.kidera.pairs = merge(dt.kidera.11 %>% as.data.frame, 
+                        dt.kidera.22 %>% as.data.frame) %>%
+  mutate(aa_pair = paste(aa.1, aa.2)) %>%
+  filter(aa.1 >= aa.2) %>%
+  select(-aa.1, -aa.2)
+```
+
+```{r}
+dt.contacts.k2 = dt.contacts %>%
+  merge(dt.kidera.1, by = "aa.1", allow.cartesian=T) %>%
+  merge(dt.kidera.2, by = c("aa.2", "variable"))
+
+ggplot(dt.contacts.k2, aes(x = value.1r, y = value.2r, fill = odds)) +
+  geom_tile() + #(aes(size = abs(odds)), shape=21) +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32),
+        limits = c(-5, 5)) +
+  facet_wrap(~variable) +
+  theme_bw()
+
+ggplot(dt.contacts.k2, aes(x = value.1s, y = value.2s)) +
+  geom_density2d(data = dt.contacts.k2 %>% filter(odds > 0), 
+                 aes(weight = abs(odds)), 
+                 color = "#2166ac", h=c(2, 2)) +
+  geom_density2d(data = dt.contacts.k2 %>% filter(odds < 0), 
+                 aes(weight = abs(odds)), 
+                 color = "#b2182b", h=c(2, 2)) +
+  facet_wrap(~variable) +
+  theme_bw()
+```
+
+```{r}
+mat.kidera.pairs = dt.kidera.pairs
+rownames(mat.kidera.pairs) = mat.kidera.pairs$aa_pair
+mat.kidera.pairs$aa_pair = NULL
+mat.kidera.pairs = as.matrix(mat.kidera.pairs)
+dist.kidera = dist(mat.kidera.pairs)
+
+res = isoMDS(dist.kidera)
+aas = str_split_fixed(rownames(res$points), " ", 2)
+
+dt.contacts.2d = data.table(aa.1 = aas[,1], 
+                            aa.2 = aas[,2], 
+                            x=res$points[,1],
+                            y=res$points[,2]) %>%
+  merge(dt.contacts, by = c("aa.1", "aa.2"))
+
+ggplot(dt.contacts.2d, aes(x = x, y = y)) +
+  geom_density2d(data = dt.contacts.2d %>% filter(odds > 0), 
+                 aes(weight = abs(odds), alpha = ..level..), 
+                 color = "#2166ac", h=c(4, 4), linetype = "dashed") +
+  geom_density2d(data = dt.contacts.2d %>% filter(odds < 0), 
+                 aes(weight = abs(odds), alpha = ..level..), 
+                 color = "#b2182b", h=c(4, 4), linetype = "dashed") +
+  geom_point(aes(fill = odds, size = abs(odds)), shape = 21) +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32),
+        limits = c(-5, 5)) +
+  scale_size_continuous(guide = F) +
+  theme_bw()
+```
+
+```{r}
+dt.imgt.aa = data.table(aa = c("A", "I", "L", "V",
+                               "R", "H", "K",
+                               "C", "M",
+                               "S", "T",
+                               "D", "E",
+                               "N", "Q",
+                               "F", "W", "Y",
+                               "G", "P"), 
+                        aa_cls = c("aliphatic", "aliphatic", "aliphatic", "aliphatic",
+                                   "basic", "basic", "basic",
+                                   "sulfur", "sulfur",
+                                   "hydroxyl", "hydroxyl",
+                                   "acidic", "acidic",
+                                   "amide", "amide",
+                                   "aromatic","aromatic","aromatic",
+                                   "G", "P"),
+                        aa_hydrop = c("Hydrophobic", "Hydrophobic", "Hydrophobic", "Hydrophobic",
+                                      "Hydrophilic", "Neutral", "Hydrophilic",
+                                      "Hydrophobic", "Hydrophobic",
+                                      "Neutral", "Neutral",
+                                      "Hydrophilic", "Hydrophilic",
+                                      "Hydrophilic", "Hydrophilic",
+                                      "Hydrophobic", "Neutral", "Neutral", 
+                                      "Neutral", "Neutral"))
+
+dt.imgt.aa$aa_cls_f = as.factor(dt.imgt.aa$aa_cls)
+dt.imgt.aa$aa_hydrop_f = factor(dt.imgt.aa$aa_hydrop,
+                                levels = c("Hydrophobic", "Neutral", "Hydrophilic"))
+
+dt.imgt.aa.1 = dt.imgt.aa
+colnames(dt.imgt.aa.1) = paste0(colnames(dt.imgt.aa.1), ".1")
+dt.imgt.aa.2 = dt.imgt.aa
+colnames(dt.imgt.aa.2) = paste0(colnames(dt.imgt.aa.2), ".2")
+```
+
+```{r}
+dt.contacts.i = dt.contacts %>%
+  merge(dt.imgt.aa.1, by = "aa.1") %>%
+  merge(dt.imgt.aa.2, by = "aa.2") %>%
+  filter(!(aa.1 == "C" & aa.2 == "C"),
+         paste(as.integer(aa_cls_f.1), aa.1) >= paste(as.integer(aa_cls_f.2), aa.2))
+
+ggplot(dt.contacts.i, aes(x = 0.5, y = odds)) +
+  geom_boxplot(width = 0.3) +
+  geom_jitter(aes(fill = odds),
+              height = 0, width = 0.1, shape = 21) +
+  geom_hline(yintercept = median(dt.contacts.i$odds), linetype = "dashed") +
+  scale_x_continuous("", limits = c(0, 1)) +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32),
+        limits = c(-5, 5)) +
+  facet_grid(aa_cls.1~aa_cls.2) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+```{r}
+dt.contacts.h = dt.contacts %>%
+  merge(dt.imgt.aa.1, by = "aa.1") %>%
+  merge(dt.imgt.aa.2, by = "aa.2") %>%
+  filter(!(aa.1 == "C" & aa.2 == "C"),
+         paste(as.integer(aa_hydrop_f.1), aa.1) >= paste(as.integer(aa_hydrop_f.2), aa.2))
+
+dt.contacts.h$aa_hydrop.1 = factor(dt.contacts.h$aa_hydrop.1, 
+                                   levels = c("Hydrophobic", "Neutral", "Hydrophilic"))
+dt.contacts.h$aa_hydrop.2 = factor(dt.contacts.h$aa_hydrop.2, 
+                                   levels = c("Hydrophobic", "Neutral", "Hydrophilic"))
+
+ggplot(dt.contacts.h, aes(x = 0.5, y = odds)) +
+  geom_boxplot(width = 0.3) +
+  geom_jitter(aes(fill = odds),
+              height = 0, width = 0.1, shape = 21) +
+  geom_hline(yintercept = median(dt.contacts.i$odds), linetype = "dashed") +
+  scale_x_continuous("", limits = c(0, 1)) +
+  scale_fill_gradientn(
+        colors=colorRampPalette(brewer.pal(11, 'RdBu'))(32),
+        limits = c(-5, 5)) +
+  facet_grid(aa_hydrop.1~aa_hydrop.2) +
+  theme_bw() +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+## Overall energies
+
+```{r}
+dt.en.real = dt.struct %>%
+  as.data.table %>%
+  filter(calc_contact(distance) == 1) %>%
+  merge(dt.contacts %>% mutate(aa_tcr = aa.1, aa_antigen = aa.2) %>% select(-aa.1, -aa.2)) %>%
+  group_by(pdb_id) %>%
+  summarise(en_c = sum(odds)) %>%
+  as.data.table
+```
+
+```{r}
+dt.mock.good = dt.mock %>%
+  select(pdb_id_a, pdb_id_t, tcr_gene, tcr_region) %>%
+  unique() %>%
+  group_by(pdb_id_a, pdb_id_t) %>%
+  summarise(count = n()) %>%
+  filter(count == 6) %>%
+  select(-count)
+```
+
+```{r}
+dt.en.mock = dt.mock %>%
+  as.data.table %>%
+  filter(calc_contact(distance) == 1) %>%
+  merge(dt.mock.good) %>%
+  merge(dt.contacts %>% mutate(aa_tcr = aa.1, aa_antigen = aa.2) %>% select(-aa.1, -aa.2)) %>%
+  group_by(pdb_id_a, pdb_id_t) %>%
+  summarise(en_c = sum(odds)) %>%
+  as.data.table
+```
+
+```{r}
+ggplot(dt.en.real, aes(x = exp(en_c)/(1+exp(en_c)))) +
+  geom_density(color = "red") +
+  geom_density(data = dt.en.mock, color = "black")
+```
+
+## Fitting base scores
+
+```{r}
+dt.aa.tcr = dt.struct %>%
+  select(pdb_id, tcr_gene, tcr_region, pos_tcr, aa_tcr) %>%
+  unique %>%
+  group_by(pdb_id, pdb_id_t = pdb_id, aa = aa_tcr) %>%
+  summarise(count = n()) %>%
+  as.data.table
+
+dt.aa.ag = dt.struct %>%
+  select(pdb_id, pos_antigen, aa_antigen) %>%
+  unique %>%
+  group_by(pdb_id, pdb_id_a = pdb_id, aa = aa_antigen) %>%
+  summarise(count = n()) %>%
+  as.data.table
+```
+
+```{r}
+aa_template = data.table(aa = dt.kidera$aa)
+
+calc_ll = function(beta, e0.t, e0.a, en_c, real) {
+  ee = exp(beta * (e0.t + e0.a - en_c))
+  if (real) {
+    return(sum(log(1/(1+ee))))
+  } else {
+    return(sum(log(ee/(1+ee))))
+  }
+}
+
+calc_ll_all = function(x) {
+  beta = x[1]
+  e0 = aa_template
+  e0$x = x[2:21]
+  
+  tcr.e0 = dt.aa.tcr %>%
+    merge(e0) %>%
+    group_by(pdb_id, pdb_id_t) %>%
+    summarise(e0.t = sum(x))
+  
+  ag.e0 = dt.aa.ag %>%
+    merge(e0) %>%
+    group_by(pdb_id, pdb_id_a) %>%
+    summarise(e0.a = sum(x))
+  
+  en.real = dt.en.real %>%
+    merge(tcr.e0, by = "pdb_id") %>%
+    merge(ag.e0, by = "pdb_id")
+  
+  en.mock = dt.en.mock %>%
+    merge(tcr.e0, by = "pdb_id_t") %>%
+    merge(ag.e0, by = "pdb_id_a")
+  
+  -with(en.real, calc_ll(beta, e0.t, e0.a, en_c, T)) -
+    with(en.mock, calc_ll(beta, e0.t, e0.a, en_c, F))
+}
+
+calc_ll_all(c(1, rep(0, 20)))
+
+x0 = c( 0.695177, 0.440398, 0.190554, 0.380300, 0.078026, -0.038308, 0.714132, -0.366082, 0.383199, 0.390892, 0.662073, 0.611036, -0.334027, -0.020292, 0.004633, 0.458278, 0.609722, 0.703279, 0.633079, -0.008535, 0.158609 )
+
+res = nloptr(x0 = x0,
+       lb = c(0, rep(-3, 20)),
+       ub = c(3, rep(3, 20)),
+       eval_f = calc_ll_all,
+       opts = list(algorithm = "NLOPT_LN_SBPLX",
+                   maxeval = 1000,
+                   print_level = 3))
+```
+
+```{r}
+beta = res$solution[1]
+e0 = aa_template
+e0$x = res$solution[2:21]
+  
+tcr.e0 = dt.aa.tcr %>%
+  merge(e0) %>%
+  group_by(pdb_id, pdb_id_t) %>%
+  summarise(e0.t = sum(x))
+  
+ag.e0 = dt.aa.ag %>%
+  merge(e0) %>%
+  group_by(pdb_id, pdb_id_a) %>%
+  summarise(e0.a = sum(x))
+  
+en.real = dt.en.real %>%
+  merge(tcr.e0, by = "pdb_id") %>%
+  merge(ag.e0, by = "pdb_id") %>%
+  mutate(e = (e0.t + e0.a - en_c),
+         ee = exp(beta * e), 
+         p = 1/(1+ee))
+  
+en.mock = dt.en.mock %>%
+  merge(tcr.e0, by = "pdb_id_t") %>%
+  merge(ag.e0, by = "pdb_id_a") %>%
+  mutate(e = (e0.t + e0.a - en_c),
+         ee = exp(beta * e), 
+         p = ee/(1+ee))
+
+ggplot(en.real, aes(x = en_c)) +
+  #geom_density(color = "red") +
+  stat_ecdf(color = "red") +
+  #geom_density(data = en.mock, color = "black") +
+  stat_ecdf(data = en.mock, color = "black") +
+  theme_bw()
+
+ggplot(en.real, aes(x = p)) +
+  #geom_density(color = "red") +
+  stat_ecdf(color = "red") +
+  #geom_density(data = en.mock, color = "black") +
+  stat_ecdf(data = en.mock, color = "black") +
+  theme_bw()
+```
+
+
+## Non-contact probabilities
+
+
+```{r}
+dt.nc.real = dt.struct %>%
+  as.data.table %>%
+  mutate(contact = calc_contact(distance)) %>%
+  filter(!(tcr_region == "CDR3" & (pos_tcr <= 2 | pos_tcr >= len_tcr - 4)))
+
+dt.nc.real.tr = dt.nc.real %>%
+  filter(tcr_region == "CDR3") %>%
+  group_by(pdb_id, tcr_gene, tcr_region, len_tcr, pos_tcr, aa_tcr) %>%
+  summarise(contact = sum(contact), total = 1) %>%
+  group_by(aa_tcr) %>%
+  summarise(count = sum(contact == 0) + 1, total = sum(total))
+
+dt.nc.real.ag = dt.nc.real %>%
+  group_by(pdb_id, pos_antigen, aa_antigen) %>%
+  summarise(contact = sum(contact), total = 1) %>%
+  group_by(aa_antigen) %>%
+  summarise(count = sum(contact == 0) + 1, total = sum(total))
+```
+
+```{r}
+dt.nc.real.s = dt.nc.real.tr %>%
+  mutate(aa = aa_tcr, p_tcr = count / total) %>%
+  select(aa, p_tcr) %>%
+  merge(dt.nc.mock.ag %>%
+          mutate(aa = aa_antigen, p_antigen = count / total) %>%
+          select(aa, p_antigen))
+
+ggplot(dt.nc.real.s, aes(x = p_tcr, y = p_antigen)) +
+  geom_point()
+```
+
+
+
+
+
+
+
+```{r}
+dt.nc.mock = dt.mock %>%
+  as.data.table %>%
+  mutate(contact = calc_contact(distance))
+
+dt.nc.mock.tr = dt.nc.mock %>%
+  group_by(pdb_id_a, pdb_id_t, tcr_gene, tcr_region, len_tcr, pos_tcr, aa_tcr) %>%
+  summarise(contact = sum(contact), total = 1) %>%
+  group_by(aa_tcr) %>%
+  summarise(count = sum(contact == 0) + 1,
+            total = sum(total))
+
+dt.nc.mock.ag = dt.nc.mock %>%
+  group_by(pdb_id_t, pdb_id_a, pos_antigen, aa_antigen) %>%
+  summarise(contact = sum(contact), total = 1) %>%
+  group_by(aa_antigen) %>%
+  summarise(count = sum(contact == 0) + 1,
+            total = sum(total))
+```
+
+```{r}
+dt.nc.mock.s = dt.nc.mock.tr %>%
+  mutate(aa = aa_tcr) %>%
+  select(count, total, aa) %>%
+  rbind(dt.nc.mock.ag %>%
+          mutate(aa = aa_antigen) %>%
+          select(count, total, aa)) %>%
+  group_by(aa) %>%
+  summarise(p = sum(count) / sum(total))
+```
